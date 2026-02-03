@@ -1,0 +1,1 @@
+"""Public evaluation protocol assets."""

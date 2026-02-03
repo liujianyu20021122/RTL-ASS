@@ -1,0 +1,111 @@
+{
+  "schema_version": "1.0",
+  "name": "rtl-ass-starter",
+  "version": "1.0.0",
+  "description": "First-party ready/valid RTL, self-checking testbench, formal assertions, and focused engineering cards.",
+  "license_spdx": "Apache-2.0",
+  "records": [
+    {
+      "key": "ready-valid-register",
+      "role": "rtl-design",
+      "language": "systemverilog",
+      "title": "One-entry ready/valid register",
+      "summary": "Synthesizable one-entry elastic register with synchronous active-low reset.",
+      "content_hash": "026a66c52cbc7002bbe86e688126c2ad556db42c417da0df820c42ebed3b4ae4",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.0.0",
+      "source_path": "library/starter/rtl/ready_valid_register.sv",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {"top": "ready_valid_register", "parameters": {"DATA_WIDTH": 8}},
+      "content_path": "rtl/ready_valid_register.sv"
+    },
+    {
+      "key": "ready-valid-register-tb",
+      "role": "testbench",
+      "language": "systemverilog",
+      "title": "Ready/valid register self-checking testbench",
+      "summary": "Directed reset, backpressure, simultaneous dequeue/enqueue, drain, waveform, and timeout checks.",
+      "content_hash": "90d97737041ea79768db4755d9ab463177f8dce98cccf47b7803e2f047cd1982",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.0.0",
+      "source_path": "library/starter/tb/ready_valid_register_tb.sv",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {"top": "ready_valid_register_tb", "simulator": "iverilog"},
+      "content_path": "tb/ready_valid_register_tb.sv"
+    },
+    {
+      "key": "ready-valid-register-formal",
+      "role": "assertion",
+      "language": "systemverilog",
+      "title": "Ready/valid register formal harness",
+      "summary": "Bounded Yosys-compatible assertions for ready/backpressure combinational invariants.",
+      "content_hash": "3efce8c15ca0648da1047a393ba5d2da16054483a88904d72c2a84866a78f80a",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.0.0",
+      "source_path": "library/starter/assertions/ready_valid_register_formal.sv",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {"top": "ready_valid_register_formal", "engine": "yosys-sat", "depth": 4, "scope": "bounded"},
+      "content_path": "assertions/ready_valid_register_formal.sv"
+    },
+    {
+      "key": "ready-valid-contract",
+      "role": "design-pattern",
+      "language": "markdown",
+      "title": "One-entry ready/valid contract",
+      "summary": "Explicit handshake, backpressure, latency, throughput, and reset assumptions.",
+      "content_hash": "4e5bfe155b87ba0883ae8ce5c53410a0b6c73b258fcbfdd3f257bd13eb0540ef",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.0.0",
+      "source_path": "library/starter/cards/ready-valid-contract.md",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {"protocol": "ready-valid"},
+      "content_path": "cards/ready-valid-contract.md"
+    },
+    {
+      "key": "testbench-sampling",
+      "role": "verification-pattern",
+      "language": "markdown",
+      "title": "Testbench sampling pattern",
+      "summary": "Drive and observation phase guidance for nonblocking sequential RTL.",
+      "content_hash": "2dbdc7fcbed3d7bfe8c703e0567d6c0e5d8eb21fb7193bd2e78d57a55e268a70",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.0.0",
+      "source_path": "library/starter/cards/testbench-sampling.md",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {"simulation_semantics": "event-regions"},
+      "content_path": "cards/testbench-sampling.md"
+    }
+  ],
+  "links": [
+    {
+      "source": "ready-valid-register-tb",
+      "target": "ready-valid-register",
+      "relation": "verifies-dut",
+      "metadata": {"scope": "directed-simulation"}
+    },
+    {
+      "source": "ready-valid-register-formal",
+      "target": "ready-valid-register",
+      "relation": "assertion-for",
+      "metadata": {"scope": "bounded-combinational-invariants"}
+    },
+    {
+      "source": "ready-valid-contract",
+      "target": "ready-valid-register",
+      "relation": "derived-from",
+      "metadata": {"method": "first-party-contract-extraction"}
+    },
+    {
+      "source": "testbench-sampling",
+      "target": "ready-valid-register-tb",
+      "relation": "derived-from",
+      "metadata": {"method": "first-party-pattern-extraction"}
+    }
+  ],
+  "pack_hash": "4a0920ca7ae7d5ca6a01203a2d7611f2f667b7e3de343cc2e5dec8e3668dad6f"
+}

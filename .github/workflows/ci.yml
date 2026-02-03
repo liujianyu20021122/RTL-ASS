@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install open RTL evidence tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes gtkwave iverilog verilator yosys
+      - name: Install package and audit dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Compile
+        run: python -m compileall -q src tests evals tools .agents/skills/rtl-ass/scripts
+      - name: Static quality
+        run: |
+          ruff format --check src tests evals tools .agents/skills/rtl-ass/scripts
+          ruff check src tests evals tools .agents/skills/rtl-ass/scripts
+          mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py
+      - name: JSON Schema contracts
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from jsonschema import Draft202012Validator
+          for path in sorted(Path("schemas").glob("*.json")):
+              Draft202012Validator.check_schema(json.loads(path.read_text(encoding="utf-8")))
+          PY
+      - name: Skill and evaluation contracts
+        run: |
+          python -m unittest tests.test_skill_contract -v
+          python evals/validate_cases.py evals/cases.json
+          rtl-ass kb pack-validate library/starter/pack.json
+      - name: Unit tests
+        run: PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: Unit tests without runtime assertions
+        run: PYTHONOPTIMIZE=1 PYTHONPATH=src python -m unittest discover -s tests -v
+      - name: Build release distributions
+        run: |
+          python -m build
+          python tools/build_release_assets.py
+          twine check dist/rtl_ass-1.0.0-py3-none-any.whl dist/rtl_ass-1.0.0.tar.gz
+      - name: Installed CLI smoke
+        run: |
+          python -m venv build/ci-wheel-venv
+          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.0.0-py3-none-any.whl
+          build/ci-wheel-venv/bin/rtl-ass --version
+          build/ci-wheel-venv/bin/rtl-ass verify formal --help
+          build/ci-wheel-venv/bin/rtl-ass verify equiv --help
+          skill_smoke_dir=$(mktemp -d)
+          unzip -q dist/rtl-ass-skill-1.0.0.zip -d "$skill_smoke_dir"
+          build/ci-wheel-venv/bin/python "$skill_smoke_dir/rtl-ass/scripts/rtl_ass.py" --version
+      - uses: actions/upload-artifact@v4
+        if: matrix.python-version == '3.12'
+        with:
+          name: rtl-ass-release-candidate
+          path: |
+            dist/rtl_ass-1.0.0-py3-none-any.whl
+            dist/rtl_ass-1.0.0.tar.gz
+            dist/rtl-ass-skill-1.0.0.zip
+            dist/rtl-ass-sbom.spdx.json
+            dist/SHA256SUMS

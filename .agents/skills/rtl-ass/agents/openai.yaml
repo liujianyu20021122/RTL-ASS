@@ -1,0 +1,6 @@
+interface:
+  display_name: "RTL-ASS"
+  short_description: "Open-source RTL engineering support for Codex"
+  default_prompt: "Use $rtl-ass to inspect, implement, and verify this RTL task with open-source evidence."
+policy:
+  allow_implicit_invocation: true

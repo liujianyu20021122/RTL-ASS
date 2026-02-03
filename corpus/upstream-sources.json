@@ -1,0 +1,705 @@
+{
+  "generated_at": "2026-08-30T16:49:55+00:00",
+  "policy": {
+    "default_trust": "quarantine",
+    "license_findings_are_automated_heuristics": true,
+    "redistribution_approved": false,
+    "source_execution_performed": false
+  },
+  "schema_version": "1.0",
+  "source_count": 21,
+  "source_root": "research/upstream",
+  "sources": [
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 68,
+        "systemverilog_files": 11,
+        "testbench_candidates": 0,
+        "tracked_files": 1022,
+        "verilog_files": 57
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design"
+      ],
+      "license_finding": {
+        "content_hash": "8177f97513213526df2cf6184d8ff986c675afb514d4e68a404010521b880643",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "GPL-2.0-family",
+        "status": "detected"
+      },
+      "name": "FPGA-Agent-skills2",
+      "reproducibly_pinned": true,
+      "revision": "7d6839152f89d80b8afe87e87cd908bd9645bae1",
+      "revision_date": "2026-05-03T05:19:55+00:00",
+      "source_identity": "78892cb35d2a9fd07200a4ee9b32dddd74b7254a18267426a1b43d8932ec6c9b",
+      "source_kind": "git",
+      "source_uri": "https://github.com/mfkiwl/FPGA-Agent-skills2.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 46,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 245,
+        "systemverilog_files": 245,
+        "testbench_candidates": 5,
+        "tracked_files": 2341,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench",
+        "assertion"
+      ],
+      "license_finding": {
+        "content_hash": "a590d29b842be9d5845b0b237b2c62f158fd73721b5efdc65d54b25cfb2493ea",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "GateTruth",
+      "reproducibly_pinned": true,
+      "revision": "2cdaae80ae42c211b049aa521fc2b5db1c2037af",
+      "revision_date": "2026-08-09T00:22:06-07:00",
+      "source_identity": "e20fae4ff35738169a0634f51cda91b5ab7766043239758fa0075e28b63fb9ce",
+      "source_kind": "git",
+      "source_uri": "https://github.com/meetbhadra701-cloud/GateTruth.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 1,
+        "systemverilog_files": 1,
+        "testbench_candidates": 1,
+        "tracked_files": 54,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "aa5a4458be46e4e17ac0a5d0da13213cc1058bbcaaa53377852e448078b80091",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "MAGE",
+      "reproducibly_pinned": true,
+      "revision": "90c96366c518d32bd7b81703bdef3cc46eeaeaf9",
+      "revision_date": "2025-04-11T00:32:44-07:00",
+      "source_identity": "d1ec18f7b73c7ae81d3c490dc3b18f203d71e36d8f9741600d2321390c531cd6",
+      "source_kind": "git",
+      "source_uri": "https://github.com/stable-lab/MAGE.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 2,
+        "systemverilog_files": 0,
+        "testbench_candidates": 2,
+        "tracked_files": 61,
+        "verilog_files": 2
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": null,
+        "path": null,
+        "requires_review": true,
+        "spdx_candidate": null,
+        "status": "unknown"
+      },
+      "name": "Pro-V-main",
+      "reproducibly_pinned": false,
+      "revision": null,
+      "revision_date": null,
+      "source_identity": "71926afd62648e922f83a292ec16d0c08ae09fe91d1d03b054f53c485238a3d3",
+      "source_kind": "archive-or-directory",
+      "source_uri": null,
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 266918,
+        "systemverilog_files": 171583,
+        "testbench_candidates": 724,
+        "tracked_files": 530699,
+        "verilog_files": 95335
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "4c1a73fb46eeb73eb87d94c3080bbc5965ec0bcf37d7274500957857d43ed115",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "REvolution",
+      "reproducibly_pinned": true,
+      "revision": "81cc049d2adb2fab974345e8d5d8057fae54b439",
+      "revision_date": "2025-10-26T23:33:40-04:00",
+      "source_identity": "7ae136d92652545d31f7f005a29e1f3e6cb67a9bad7de435fa87abb91819c354",
+      "source_kind": "git",
+      "source_uri": "https://github.com/kmcho2019/REvolution.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "high",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 626,
+        "rtl_source_candidates": 627,
+        "systemverilog_files": 627,
+        "testbench_candidates": 313,
+        "tracked_files": 1158,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": null,
+        "path": null,
+        "requires_review": true,
+        "spdx_candidate": null,
+        "status": "unknown"
+      },
+      "name": "RTL-Agent",
+      "reproducibly_pinned": true,
+      "revision": "3ab4667e89ab1b48891c88199728fd95e8fda007",
+      "revision_date": "2026-05-13T15:23:24-04:00",
+      "source_identity": "958b53e634145f96fb2c811fdd98047f121ee75d9921371673430007f68e3684",
+      "source_kind": "git",
+      "source_uri": "https://github.com/DevDesai444/RTL-Agent.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 0,
+        "systemverilog_files": 0,
+        "testbench_candidates": 0,
+        "tracked_files": 73,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [],
+      "license_finding": {
+        "content_hash": "aac5e9e47709fec34fde0fd346f6d676a75d88d4414aaf114e8ddb78dcf97eab",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "RTLFixer",
+      "reproducibly_pinned": true,
+      "revision": "24ceebd9176d59bf302e935a800fcb46a10c634c",
+      "revision_date": "2024-05-23T16:07:37+08:00",
+      "source_identity": "59776ab67ec7b9437d9b83ff42828fb5fd69bbc8cdb3aeaed2f7bbf0aff9ee70",
+      "source_kind": "git",
+      "source_uri": "https://github.com/NVlabs/RTLFixer.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 18,
+        "systemverilog_files": 8,
+        "testbench_candidates": 17,
+        "tracked_files": 1002,
+        "verilog_files": 10
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "229f786724a4bae5c1b156269d9c1d353df15a3249b27f56c80885fee83fa82a",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "booley",
+      "reproducibly_pinned": true,
+      "revision": "d674b9cf853293860f912e2a5abe38c9279e42ff",
+      "revision_date": "2026-08-30T18:27:29+04:00",
+      "source_identity": "280902345260858a0d9e0a5c22531ea01dabb2e9fde445106e813699d2fbfaf4",
+      "source_kind": "git",
+      "source_uri": "https://github.com/boldaxolotl/booley.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 6,
+        "systemverilog_files": 0,
+        "testbench_candidates": 0,
+        "tracked_files": 37,
+        "verilog_files": 6
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design"
+      ],
+      "license_finding": {
+        "content_hash": "e32d767ade2a062cf6153d82d76bb8752f01a69b77c269019d92dbfcc8a55727",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "duck-rtl",
+      "reproducibly_pinned": true,
+      "revision": "fe9a66a80cdd7a64206d15929ffc3bd956b88dab",
+      "revision_date": "2026-07-08T22:38:12+05:30",
+      "source_identity": "84d55d90b3a2d2d5241dffee59db9b2a73f559a05731bd2f79e741854639daf1",
+      "source_kind": "git",
+      "source_uri": "https://github.com/oniondas/duck-rtl.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 32,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 652,
+        "systemverilog_files": 650,
+        "testbench_candidates": 94,
+        "tracked_files": 3693,
+        "verilog_files": 2
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench",
+        "assertion"
+      ],
+      "license_finding": {
+        "content_hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "ibex",
+      "reproducibly_pinned": true,
+      "revision": "8b8ee086aef72e0833b7f0493d9d33f1e4d3c8e2",
+      "revision_date": "2026-08-20T21:07:04+00:00",
+      "source_identity": "66f7f2dd84a7b6905cb05cacedd55c0bef0f84cd819fb7c7c7203c88031e8c00",
+      "source_kind": "git",
+      "source_uri": "https://github.com/lowRISC/ibex.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 2,
+        "systemverilog_files": 2,
+        "testbench_candidates": 2,
+        "tracked_files": 44,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "07b9f71a384902a19599ea99f617e14acc4ea544fe432f8aacaa261e3740f258",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "llm4cov_oss",
+      "reproducibly_pinned": true,
+      "revision": "1566cb00dd4901671160a393b8a53283fb185fac",
+      "revision_date": "2026-02-26T19:30:06-08:00",
+      "source_identity": "aef13b5d510dd79ba6fd05df379e67c9e794a678081233b9de080b29122566d1",
+      "source_kind": "git",
+      "source_uri": "https://github.com/HejiaZ2023/llm4cov_oss.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 41,
+        "systemverilog_files": 0,
+        "testbench_candidates": 17,
+        "tracked_files": 247,
+        "verilog_files": 41
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "041ebc727233e5bf096dd41260cbb81014d3d29ca007a15f3b1807d4e9ff288e",
+        "path": "COPYING",
+        "requires_review": true,
+        "spdx_candidate": "ISC",
+        "status": "detected"
+      },
+      "name": "picorv32",
+      "reproducibly_pinned": true,
+      "revision": "a473fc8fca393771d83b0ffcf0b14db3393339d8",
+      "revision_date": "2026-07-31T17:45:22+12:00",
+      "source_identity": "118b4b3e4c1bfb6560d3ea55a8e197a15fcfb55d677875971b9770ab78c34b54",
+      "source_kind": "git",
+      "source_uri": "https://github.com/YosysHQ/picorv32.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 93,
+        "systemverilog_files": 93,
+        "testbench_candidates": 28,
+        "tracked_files": 152,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "6527a46225891b976fa94f634f6ee0cd22e1c7129d6f11c5c98c997627625fc7",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "pulp_axi",
+      "reproducibly_pinned": true,
+      "revision": "4da15979747f326bde2f9869c64e587ce599772c",
+      "revision_date": "2026-07-28T17:55:19+02:00",
+      "source_identity": "53dbc90d491f00397dde4ff21e796e3b886d7a003cea814a874ae97946646029",
+      "source_kind": "git",
+      "source_uri": "https://github.com/pulp-platform/axi.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 5,
+        "systemverilog_files": 3,
+        "testbench_candidates": 1,
+        "tracked_files": 34,
+        "verilog_files": 2
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "978a2cf98dfd07a91fc4b90de35f0e2e1f20bdfca2dff389b5e768ba0b42b881",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "rtl-skills",
+      "reproducibly_pinned": true,
+      "revision": "1800fd191faccabb3a6d29543d20e24137ec4a18",
+      "revision_date": "2026-06-10T12:52:52+07:00",
+      "source_identity": "04072b60e3687ea2eefbfd08072f449033b3db1c215366412412590200696aad",
+      "source_kind": "git",
+      "source_uri": "https://github.com/phamcuong21478/rtl-skills.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "medium",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 18,
+        "rtl_source_candidates": 18,
+        "systemverilog_files": 0,
+        "testbench_candidates": 0,
+        "tracked_files": 530,
+        "verilog_files": 18
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design"
+      ],
+      "license_finding": {
+        "content_hash": "a05d24c2f3a9e29586b4c57dcc1cd151ddaf0d3e8a55b7a3639407f03d1161f9",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "rtl2gds-agent",
+      "reproducibly_pinned": true,
+      "revision": "b350d2e3a3ca41b80f23ce0758d8880de3829cf3",
+      "revision_date": "2026-06-27T15:02:55+05:30",
+      "source_identity": "d2c1f11f507321b2c8cf7e8ec85928917afc6aed7089dfa8d9dfcb8f43b225bd",
+      "source_kind": "git",
+      "source_uri": "https://github.com/ShashankT-ECE/rtl2gds-agent.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 3,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 1031,
+        "systemverilog_files": 1031,
+        "testbench_candidates": 1028,
+        "tracked_files": 1196,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench",
+        "assertion"
+      ],
+      "license_finding": {
+        "content_hash": "47862ece873b4d3c93aeebcfd0913447a174ea924dd68320fb0119e5e23b9235",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "ISC",
+        "status": "detected"
+      },
+      "name": "sv-tests",
+      "reproducibly_pinned": true,
+      "revision": "c4229f3bd5220e6d3ba8f390e5d09c87e462e9c7",
+      "revision_date": "2026-08-06T00:25:07+00:00",
+      "source_identity": "3d079d96960ccdb2ecf63dcf5863a00f5726294dbd060bfd6ee6e2d3cfca6b15",
+      "source_kind": "git",
+      "source_uri": "https://github.com/chipsalliance/sv-tests.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "high",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 800,
+        "rtl_source_candidates": 1190,
+        "systemverilog_files": 626,
+        "testbench_candidates": 398,
+        "tracked_files": 1938,
+        "verilog_files": 564
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "turtle",
+      "reproducibly_pinned": true,
+      "revision": "3f37967d1cba8a34748274c5570d46b341642d1b",
+      "revision_date": "2026-02-23T12:17:01+01:00",
+      "source_identity": "a76f6fae822d4de3b3d708019e111652513b51cd1d1f040cf58a6b00830b8a24",
+      "source_kind": "git",
+      "source_uri": "https://github.com/Silimate/turtle.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 174,
+        "systemverilog_files": 174,
+        "testbench_candidates": 2,
+        "tracked_files": 326,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "path": "LICENSE.txt",
+        "requires_review": true,
+        "spdx_candidate": "Apache-2.0",
+        "status": "detected"
+      },
+      "name": "uvm-core",
+      "reproducibly_pinned": true,
+      "revision": "78c06547a2a0a29b3dc9dcafae62b75b2ff61544",
+      "revision_date": "2024-09-03T10:37:45-04:00",
+      "source_identity": "4d59f28bd947237e60e0c27d709231d32d6c882881a7ae45ecb40c52ee9d96a7",
+      "source_kind": "git",
+      "source_uri": "https://github.com/accellera-official/uvm-core.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 85,
+        "systemverilog_files": 0,
+        "testbench_candidates": 54,
+        "tracked_files": 214,
+        "verilog_files": 85
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "8ea57f95365e9b16a5b516f422b71269183a1ae53bab5878ae6d69039e58fe77",
+        "path": "COPYING",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "verilog-axis",
+      "reproducibly_pinned": true,
+      "revision": "48ff7a7e2ef782cf778d47910cf85835c64b1bce",
+      "revision_date": "2025-02-27T15:50:11-08:00",
+      "source_identity": "477f38acb2970c9beea66ac203db361d0e86bd5a7a3c30a4641c9420d9ba3bb8",
+      "source_kind": "git",
+      "source_uri": "https://github.com/alexforencich/verilog-axis.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "high",
+      "counts": {
+        "assertion_candidates": 0,
+        "benchmark_contamination_candidates": 626,
+        "rtl_source_candidates": 626,
+        "systemverilog_files": 626,
+        "testbench_candidates": 312,
+        "tracked_files": 1119,
+        "verilog_files": 0
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench"
+      ],
+      "license_finding": {
+        "content_hash": "57ba983be500462670e5e6de0655ed6fb0a30b4b17be8030ec935bb514b562d1",
+        "path": "LICENSE",
+        "requires_review": true,
+        "spdx_candidate": "MIT",
+        "status": "detected"
+      },
+      "name": "verilog-eval",
+      "reproducibly_pinned": true,
+      "revision": "c498220d0a52248f8e3fdffe279075215bde2da6",
+      "revision_date": "2025-02-07T09:37:37-08:00",
+      "source_identity": "1864f467b880566e7377983876afddf4c3ff82da0d3859178a37c987b21feeaf",
+      "source_kind": "git",
+      "source_uri": "https://github.com/NVlabs/verilog-eval.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    },
+    {
+      "benchmark_contamination_risk": "not_detected",
+      "counts": {
+        "assertion_candidates": 23,
+        "benchmark_contamination_candidates": 0,
+        "rtl_source_candidates": 89,
+        "systemverilog_files": 2,
+        "testbench_candidates": 1,
+        "tracked_files": 365,
+        "verilog_files": 87
+      },
+      "ingestion_status": "not_ingested",
+      "intended_roles": [
+        "rtl-design",
+        "testbench",
+        "assertion"
+      ],
+      "license_finding": {
+        "content_hash": null,
+        "path": null,
+        "requires_review": true,
+        "spdx_candidate": null,
+        "status": "unknown"
+      },
+      "name": "wb2axip",
+      "reproducibly_pinned": true,
+      "revision": "2e8d3bc2d26ddc33d1881022a2a2b9d3f0c16b9b",
+      "revision_date": "2026-06-02T15:44:50-04:00",
+      "source_identity": "906e6e332ad129d6b2e0e76db6b82e8043991667715c4ce3dfe6fe7232b67d5c",
+      "source_kind": "git",
+      "source_uri": "https://github.com/ZipCPU/wb2axip.git",
+      "trust_status": "quarantine",
+      "trusted_retrieval_eligible": false
+    }
+  ]
+}

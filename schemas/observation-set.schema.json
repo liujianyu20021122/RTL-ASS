@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/observation-set.schema.json",
+  "title": "RTL-ASS Non-Passing Observation Set",
+  "type": "object",
+  "required": ["schema_version", "observed_kinds", "observed_statuses", "evidence"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "observed_kinds": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"type": "string"}
+    },
+    "observed_statuses": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {"enum": ["fail", "timeout", "blocked"]}
+    },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "run-evidence.schema.json"}
+    }
+  },
+  "additionalProperties": false
+}
