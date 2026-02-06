@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from rtl_ass.errors import RtlAssError
-from rtl_ass.integrity import canonical_json, hash_bytes, hash_json, parse_json
+from rtl_ass.integrity import canonical_json, hash_bytes, hash_json, parse_json, read_utf8_exact
 from rtl_ass.kb.models import LicenseStatus, LinkRelation, RecordRole, validate_identifier, validate_link_roles
 
 MAX_PACK_BYTES = 10 * 1024 * 1024
@@ -277,7 +277,7 @@ def _record_content(record: Mapping[str, Any], *, base_directory: Path | None, i
         if not candidate.is_file():
             raise RtlAssError("pack_content_not_found", "pack content_path does not identify a file", {"index": index})
         try:
-            content = candidate.read_text(encoding="utf-8")
+            content = read_utf8_exact(candidate)
         except UnicodeDecodeError as exc:
             raise RtlAssError("invalid_pack_record", "pack content files must be UTF-8", {"index": index}) from exc
     if not content or len(content.encode("utf-8")) > MAX_PACK_CONTENT_BYTES:

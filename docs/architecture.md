@@ -35,3 +35,5 @@ The current adapters execute Verilator lint, Icarus simulation, Yosys synthesis,
 ## Knowledge curation
 
 Distillation is a transaction-owned workflow separate from raw ingest and tool evidence. A derived candidate inherits provenance and licensing, records its method and source content hash, and creates a `derived-from` link. Portable packs are strict, size-bounded, content-addressed containers; import validates every record and link before writes and always enters an explicit namespace as `raw`.
+
+The upstream corpus adds a policy and lock layer before raw ingest. Policy must decide every inventoried source; the lock binds each admitted tracked file to repository identity, license review, role, byte count, and content hash. Import rechecks those identities and commits the complete corpus batch atomically. Source-specific namespaces, quarantine metadata, and explicit fixture/verification roles keep broad language corpora from becoming default RTL recommendations.

@@ -33,6 +33,11 @@ def hash_file(path: str | Path) -> str:
     return digest.hexdigest()
 
 
+def read_utf8_exact(path: str | Path) -> str:
+    """Decode UTF-8 bytes without universal-newline normalization."""
+    return Path(path).read_bytes().decode("utf-8")
+
+
 def hash_json(value: Any) -> str:
     return hash_bytes(canonical_json(value).encode("utf-8"))
 

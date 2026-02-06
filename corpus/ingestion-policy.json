@@ -1,0 +1,207 @@
+{
+  "schema_version": "1.0",
+  "lock_created_at": "2026-08-31T18:00:00+08:00",
+  "upstream_manifest": "corpus/upstream-sources.json",
+  "source_root": "research/upstream",
+  "limits": {
+    "max_files": 2000,
+    "max_total_bytes": 16777216,
+    "max_source_bytes": 1048576
+  },
+  "sources": [
+    {
+      "name": "FPGA-Agent-skills2",
+      "decision": "exclude",
+      "rationale": "GPL-family and centered on proprietary Vivado workflows rather than a vendor-neutral reusable RTL corpus."
+    },
+    {
+      "name": "GateTruth",
+      "decision": "exclude",
+      "rationale": "RTL-generation benchmark tasks are isolated to prevent evaluation-answer contamination."
+    },
+    {
+      "name": "MAGE",
+      "decision": "exclude",
+      "rationale": "Evaluation-oriented generated RTL is not admitted to an engineering retrieval namespace."
+    },
+    {
+      "name": "Pro-V-main",
+      "decision": "exclude",
+      "rationale": "The source is not a pinned Git checkout and has no reviewed redistribution license."
+    },
+    {
+      "name": "REvolution",
+      "decision": "exclude",
+      "rationale": "The multi-gigabyte generated benchmark corpus is intentionally excluded as low-signal bulk data."
+    },
+    {
+      "name": "RTL-Agent",
+      "decision": "exclude",
+      "rationale": "High benchmark-contamination risk and unknown license block ingestion."
+    },
+    {
+      "name": "RTLFixer",
+      "decision": "exclude",
+      "rationale": "The pinned repository contains no tracked Verilog or SystemVerilog records to ingest."
+    },
+    {
+      "name": "booley",
+      "decision": "exclude",
+      "rationale": "Nearly all HDL files are evaluation fixtures; admit distilled patterns only after independent review."
+    },
+    {
+      "name": "duck-rtl",
+      "decision": "exclude",
+      "rationale": "Examples intentionally include failing and deadlocking designs without linked negative evidence."
+    },
+    {
+      "name": "ibex",
+      "decision": "include",
+      "rationale": "Production SystemVerilog CPU RTL with a pinned Apache-2.0 source identity; only the first-party rtl directory is selected.",
+      "namespace": "corpus:ibex",
+      "license_review": {
+        "spdx": "Apache-2.0",
+        "license_path": "LICENSE",
+        "license_hash": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "rtl/", "role": "design-auto"}
+      ]
+    },
+    {
+      "name": "llm4cov_oss",
+      "decision": "exclude",
+      "rationale": "LLM coverage experiments and their fixtures are not reusable RTL library material."
+    },
+    {
+      "name": "picorv32",
+      "decision": "include",
+      "rationale": "Pinned ISC-licensed RISC-V RTL with a compact core and open SoC examples.",
+      "namespace": "corpus:picorv32",
+      "license_review": {
+        "spdx": "ISC",
+        "license_path": "COPYING",
+        "license_hash": "041ebc727233e5bf096dd41260cbb81014d3d29ca007a15f3b1807d4e9ff288e",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "file", "path": "picorv32.v", "role": "design-auto"},
+        {"kind": "prefix", "path": "picosoc/", "role": "auto"}
+      ]
+    },
+    {
+      "name": "pulp_axi",
+      "decision": "include",
+      "rationale": "Pinned Apache-2.0 AXI/AXI-Lite implementation and its directly associated testbench sources.",
+      "namespace": "corpus:pulp-axi",
+      "license_review": {
+        "spdx": "Apache-2.0",
+        "license_path": "LICENSE",
+        "license_hash": "6527a46225891b976fa94f634f6ee0cd22e1c7129d6f11c5c98c997627625fc7",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "include/axi/", "role": "design-auto"},
+        {"kind": "prefix", "path": "src/", "role": "design-auto"},
+        {"kind": "prefix", "path": "test/", "role": "testbench"}
+      ]
+    },
+    {
+      "name": "rtl-skills",
+      "decision": "include",
+      "rationale": "A small pinned Apache-2.0 set of RTL testbench templates, isolated as raw verification patterns.",
+      "namespace": "corpus:rtl-skills",
+      "license_review": {
+        "spdx": "Apache-2.0",
+        "license_path": "LICENSE",
+        "license_hash": "978a2cf98dfd07a91fc4b90de35f0e2e1f20bdfca2dff389b5e768ba0b42b881",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "skills/vtestgen/templates/", "role": "verification-pattern"}
+      ]
+    },
+    {
+      "name": "rtl2gds-agent",
+      "decision": "exclude",
+      "rationale": "Physical-design agent fixtures and benchmark content are outside the curated RTL retrieval scope."
+    },
+    {
+      "name": "sv-tests",
+      "decision": "include",
+      "rationale": "Pinned ISC-licensed public SystemVerilog conformance cases, isolated as language fixtures rather than design templates.",
+      "namespace": "corpus:sv-tests",
+      "license_review": {
+        "spdx": "ISC",
+        "license_path": "LICENSE",
+        "license_hash": "47862ece873b4d3c93aeebcfd0913447a174ea924dd68320fb0119e5e23b9235",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "tests/", "role": "fixture"}
+      ]
+    },
+    {
+      "name": "turtle",
+      "decision": "exclude",
+      "rationale": "High benchmark-contamination risk prevents use in Codex engineering retrieval."
+    },
+    {
+      "name": "uvm-core",
+      "decision": "include",
+      "rationale": "Official pinned Apache-2.0 UVM implementation, isolated as raw verification patterns rather than synthesizable RTL.",
+      "namespace": "corpus:uvm-core",
+      "license_review": {
+        "spdx": "Apache-2.0",
+        "license_path": "LICENSE.txt",
+        "license_hash": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "src/", "role": "verification-pattern"},
+        {"kind": "prefix", "path": "compat/", "role": "verification-pattern"}
+      ]
+    },
+    {
+      "name": "verilog-axis",
+      "decision": "include",
+      "rationale": "Pinned MIT-licensed AXI Stream RTL with its directly associated open testbench wrappers.",
+      "namespace": "corpus:verilog-axis",
+      "license_review": {
+        "spdx": "MIT",
+        "license_path": "COPYING",
+        "license_hash": "8ea57f95365e9b16a5b516f422b71269183a1ae53bab5878ae6d69039e58fe77",
+        "reviewed_by": "codex-rtl-corpus-audit",
+        "reviewed_at": "2026-08-31",
+        "scope": "local-index-no-redistribution"
+      },
+      "selections": [
+        {"kind": "prefix", "path": "rtl/", "role": "design-auto"},
+        {"kind": "prefix", "path": "tb/", "role": "testbench"}
+      ]
+    },
+    {
+      "name": "verilog-eval",
+      "decision": "exclude",
+      "rationale": "Public RTL benchmark answers are excluded from retrieval to preserve evaluation integrity."
+    },
+    {
+      "name": "wb2axip",
+      "decision": "exclude",
+      "rationale": "Useful RTL remains quarantined until its repository-level license can be identified and reviewed."
+    }
+  ]
+}

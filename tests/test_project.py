@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -9,6 +11,16 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class ProjectInspectionTests(unittest.TestCase):
+    def test_inspection_preserves_crlf_bytes_for_content_identity(self) -> None:
+        content = b"module crlf;\r\nendmodule\r\n"
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / "crlf.sv"
+            source.write_bytes(content)
+            report = inspect_project(source)
+        inspected = report["files"][0]
+        self.assertEqual(inspected["byte_count"], len(content))
+        self.assertEqual(inspected["content_hash"], hashlib.sha256(content).hexdigest())
+
     def test_inspects_systemverilog_design_and_testbench_separately(self) -> None:
         report = inspect_project(FIXTURES)
         self.assertGreaterEqual(report["file_count"], 2)

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/liujianyu20021122/RTL-ASS/schemas/knowledge-stats.schema.json",
+  "title": "RTL-ASS knowledge inventory statistics",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "records", "unique_blobs", "unique_content_bytes", "links", "audit_events",
+    "by_namespace", "by_role", "by_language", "by_status", "by_license", "audit_chain"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "records": {"type": "integer", "minimum": 0},
+    "unique_blobs": {"type": "integer", "minimum": 0},
+    "unique_content_bytes": {"type": "integer", "minimum": 0},
+    "links": {"type": "integer", "minimum": 0},
+    "audit_events": {"type": "integer", "minimum": 0},
+    "by_namespace": {"$ref": "#/$defs/counts"},
+    "by_role": {"$ref": "#/$defs/counts"},
+    "by_language": {"$ref": "#/$defs/counts"},
+    "by_status": {"$ref": "#/$defs/counts"},
+    "by_license": {"$ref": "#/$defs/counts"},
+    "audit_chain": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["valid", "event_count", "head_event_hash"],
+      "properties": {
+        "valid": {"const": true},
+        "event_count": {"type": "integer", "minimum": 0},
+        "head_event_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+      }
+    }
+  },
+  "$defs": {
+    "counts": {
+      "type": "object",
+      "propertyNames": {"minLength": 1},
+      "additionalProperties": {"type": "integer", "minimum": 0}
+    }
+  }
+}

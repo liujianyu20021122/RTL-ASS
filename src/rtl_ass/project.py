@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from rtl_ass.errors import RtlAssError
+from rtl_ass.integrity import read_utf8_exact
 from rtl_ass.kb.models import RecordRole
 
 RTL_SUFFIXES = frozenset({".v", ".vh", ".sv", ".svh"})
@@ -172,7 +173,7 @@ def inspect_project(
             skipped.append({"path": relative, "reason": "source_too_large", "byte_count": size})
             continue
         try:
-            text = source_path.read_text(encoding="utf-8")
+            text = read_utf8_exact(source_path)
         except UnicodeDecodeError as exc:
             skipped.append({"path": relative, "reason": "not_utf8", "offset": exc.start})
             continue

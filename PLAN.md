@@ -98,6 +98,15 @@ Status: completed by the `v1.0.0` tag and corresponding public GitHub Release; t
 
 - Create one reviewed `main` commit, tag `v1.0.0`, publish `liujianyu20021122/RTL-ASS`, upload all five release assets, and verify remote tag/assets/checksums.
 
+### M8 — Reviewed local corpus import
+
+Status: completed after 1.0; unreleased.
+
+- Audited 21 research sources and recorded seven inclusions plus fourteen explicit exclusions. Unknown-license, benchmark-answer, generated-bulk, proprietary-flow, and intentionally broken sources remain outside engineering retrieval.
+- Added a deterministic semantic lock for 1,429 tracked Verilog/SystemVerilog files (6,621,871 bytes) across isolated source namespaces; no upstream HDL is committed or packaged.
+- Added strict policy/lock schemas, canonical path and source identity checks, tracked license verification, bounded selections, raw-byte-stable hashes, atomic/idempotent import, collision rollback, and audited inventory statistics.
+- Imported the lock into the ignored local database. Standalone Verilator lint and Yosys synthesis passed for PicoRV32 and `axis_register`; the PULP AXI standalone dependency failure is retained as infrastructure evidence rather than an RTL defect.
+
 ## Post-1.0 roadmap
 
 - Controlled multi-seed Codex skill-off/skill-on campaign using the published protocol.
@@ -114,5 +123,7 @@ Status: completed by the `v1.0.0` tag and corresponding public GitHub Release; t
 - 2026-08-31: Seven schemas parsed; generated evidence/pack contract tests passed.
 - 2026-08-31: Representative release audit passed all expected positive and negative paths, including OpenSTA and FST, with a valid ten-event starter database audit chain.
 - 2026-08-31: Explicit-candidate GK/KY usability audit selected `library/starter` correctly but had an unknown task contract and could not consume RTL-ASS JSON evidence as its legacy flat report names; its conservative single-candidate number is therefore withheld as neither a full-suite nor a model-effectiveness score.
+- 2026-08-31: The reviewed corpus lock reproduced byte-for-byte at hash `73855d55370257469793d7504c1fc79c74eb20a481ba42bfedd6ea54c0963046`; first import created 1,429 records, the identical retry created zero and changed no database bytes, and the post-sampling 1,457-event audit chain validated.
+- 2026-08-31: Post-corpus normal and optimized suites each passed 92 tests; ten JSON schemas, Ruff, strict mypy over 33 modules, Skill Creator validation, representative release audit, SQLite integrity/foreign keys, exact lock-to-database set equality, and sdist/wheel isolation scans passed.
 
 The record is updated only from executed evidence. Final artifact hashes live in `SHA256SUMS`; commit, tag, and asset publication are evidenced by the immutable GitHub release rather than duplicated inside the files they hash.

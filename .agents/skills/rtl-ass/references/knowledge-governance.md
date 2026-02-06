@@ -39,7 +39,9 @@ Search the project namespace first, then explicitly selected user, organization,
 
 ## GitHub corpus
 
-Pin repository revision and record retrieval date, source URL, file hash, license decision, role, and benchmark-contamination status. Unknown or incompatible licenses remain quarantined. Preserve original source separately from distilled knowledge cards. Do not publish private or restricted source through the index.
+Pin repository revision and record retrieval date, source URL, file hash, license decision, role, and benchmark-contamination status. Require an explicit decision for every inventoried source and a distinct namespace for every admitted source. Unknown or incompatible licenses remain quarantined. Preserve original source separately from distilled knowledge cards. Do not publish private or restricted source through the index.
+
+For a reviewed local corpus, build `corpus/curated-lock.json` with `corpus lock`, then use `kb import-corpus` and inspect `kb stats`. Treat the lock as provenance, not correctness: import remains `raw`, source trees and the database remain local, and benchmark fixtures must stay outside default design retrieval. A repeated identical import should be audit-neutral; any changed revision, license, path, byte count, hash, or immutable record identity must stop the batch.
 
 ## Promotion evidence
 
