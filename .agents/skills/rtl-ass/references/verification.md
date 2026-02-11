@@ -24,6 +24,10 @@ Use the least expensive evidence that answers the current question, then increas
 
 Do not collapse these into one pass/fail flag.
 
+For a material post-change check, prefer the RTL-ASS `verify` subcommands over an unrecorded final command when the helper is available. Each evidence class must use the exact ordered sources and top for that check, live in its own artifact directory, and end with an inspected `run-evidence.json`. Ad hoc commands remain useful for diagnosis but do not replace the normalized final record.
+
+Do not turn an optional confidence check into an open-ended subtask. If a supplemental formal, equivalence, waveform, or timing run is blocked or fails because its harness or inputs are incomplete, retain that evidence and state the boundary. Continue only when it indicates a plausible product defect or the task specifically requires that class to pass.
+
 For bounded formal, require at least one assertion after elaboration, record the bound and initialization assumptions, and retain the counterexample. A passing bound does not establish behavior beyond that bound. For equivalence, keep the reference and implementation source identities and tops distinct; do not compare a candidate with itself or erase the direction of the comparison.
 
 ## RTL versus TB attribution

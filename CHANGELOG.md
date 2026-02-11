@@ -8,6 +8,8 @@ All notable changes use semantic versioning.
 - Added atomic, idempotent corpus import; audited inventory statistics; raw-byte-stable hashing; resource, provenance, license, namespace, and path validation; and public JSON schemas.
 - Added real Verilator/Yosys sampling evidence without promoting raw upstream records; dependency-context failures remain explicitly attributed observations.
 - Pinned current GitHub Actions releases by commit SHA to keep CI reproducible and remove deprecated Node.js runtime warnings.
+- Added an isolated Codex skill-off/skill-on workflow auditor with sanitized JSONL observability, exact activation detection, hidden external grading, normalized evidence binding, infrastructure-failure exclusion, and a transparent non-power-of-two FIFO fixture.
+- Strengthened the skill delivery contract so material RTL changes produce separate hashed lint, self-checking simulation, and synthesis evidence without replacing Codex's design decisions.
 
 ## 1.0.0 — 2026-08-31
 

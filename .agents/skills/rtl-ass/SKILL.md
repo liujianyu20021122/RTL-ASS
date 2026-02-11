@@ -17,9 +17,32 @@ Codex remains the engineer: inspect the user's project, reason about the specifi
    - Simulation mismatch or waveform diagnosis: [waveform-debugging.md](references/waveform-debugging.md)
    - Synthesis, formal equivalence, or STA: [synthesis-sta.md](references/synthesis-sta.md)
    - Knowledge ingest, retrieval, or promotion: [knowledge-governance.md](references/knowledge-governance.md)
+   Do not read a reference merely because it is listed. In particular, load waveform guidance only when a real trace is needed and knowledge guidance only for retrieval or curation work.
 4. Query the local knowledge base only when existing patterns or verified cases can materially improve the task. Retrieve a small number of records, inspect provenance and applicability, then decide independently.
 5. Edit with the smallest coherent change. Do not ask a helper script or another model to write the RTL for Codex.
 6. Validate in proportion to risk. Keep compilation, simulation, waveform, formal, synthesis, and STA as separate evidence classes.
+
+## Delivery contract
+
+When a task materially changes RTL, a testbench, assertions, or constraints and the local helper is available:
+
+1. Reproduce the baseline failure without changing the supplied checker.
+2. Use direct tool commands as needed for diagnosis, but record the final applicable checks with the helper so each check has a hashed `run-evidence.json`.
+3. For an RTL repair with a runnable testbench, normally record separate lint, self-checking simulation, and synthesis runs. Add formal, equivalence, waveform, or STA only when they answer a distinct claim.
+4. Inspect every recorded status. A generated evidence file is not a pass, and a missing class must be reported as `not_available` or `not_evaluated` with its reason.
+5. In the final response, identify the exact changed files, the evidence classes and statuses, and the unverified boundary.
+
+Finish after the lowest-cost evidence set supports the requested claim. Do not add formal, waveform, synthesis, or STA merely to make the report look comprehensive; each extra class needs a concrete unresolved risk or user requirement.
+
+When formal, equivalence, waveform, or STA is only supplemental, preserve and report its first `fail` or `blocked` result instead of repeatedly rewriting harnesses or constraints. Retry only when the result plausibly exposes a candidate defect and resolving it is necessary for the requested claim. If the user explicitly requests that evidence class, treat it as primary and diagnose it to the agreed budget.
+
+The helper accepts one `--source` option per ordered source file. Use a different artifact directory for each evidence class, for example:
+
+```bash
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source rtl/dut.sv --top dut --artifact-dir artifacts/rtl-ass/lint
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --source rtl/dut.sv --source tb/dut_tb.sv --top dut_tb --artifact-dir artifacts/rtl-ass/simulation
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source rtl/dut.sv --top dut --artifact-dir artifacts/rtl-ass/synthesis
+```
 
 ## Evidence rules
 
@@ -38,6 +61,9 @@ Prefer an installed `rtl-ass` command. From this repository, use:
 ```bash
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py doctor
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py inspect <project> --json
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source <rtl.sv> --top <top> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --source <rtl.sv> --source <tb.sv> --top <tb-top> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source <rtl.sv> --top <top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <pattern> --start <time> --end <time>
