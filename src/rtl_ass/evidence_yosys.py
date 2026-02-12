@@ -231,6 +231,7 @@ def run_yosys_equivalence(
     depth: int,
     artifact_root: str | Path,
     timeout_seconds: int = 120,
+    input_domain: str = "defined",
 ) -> dict[str, Any]:
     bundle = EquivalenceInputBundle.create(
         reference_sources,
@@ -238,6 +239,7 @@ def run_yosys_equivalence(
         reference_top=reference_top,
         implementation_top=implementation_top,
         depth=depth,
+        input_domain=input_domain,
     )
     validate_timeout(timeout_seconds)
     executable = shutil.which("yosys")
@@ -246,6 +248,7 @@ def run_yosys_equivalence(
         "implementation_top": bundle.implementation.top,
         "depth": bundle.depth,
         "mode": "combinational" if depth == 1 else "bounded-sequential",
+        "input_domain": bundle.input_domain,
     }
     if executable is None:
         return unavailable_evidence(
@@ -284,7 +287,7 @@ def run_yosys_equivalence(
                 "design -copy-from rtl_ass_implementation rtl_ass_gate",
                 "equiv_make rtl_ass_gold rtl_ass_gate rtl_ass_equiv",
                 "hierarchy -check -top rtl_ass_equiv",
-                f"equiv_simple -undef -seq {bundle.depth}",
+                f"equiv_simple {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq {bundle.depth}",
                 "equiv_status -assert",
                 "",
             ]

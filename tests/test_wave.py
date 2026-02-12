@@ -61,6 +61,17 @@ class WaveTests(unittest.TestCase):
         self.assertEqual(result["event_count"], 2)
         self.assertEqual({event["time"] for event in result["events"]}, {5, 10})
 
+    def test_leaf_signal_pattern_resolves_hierarchical_name(self) -> None:
+        result = query_vcd(FIXTURE, patterns=["actual"])
+
+        self.assertEqual([signal["name"] for signal in result["selected_signals"]], ["tb.actual"])
+
+    def test_leaf_signal_names_work_for_divergence_and_remain_unambiguous(self) -> None:
+        result = first_divergence_vcd(FIXTURE, expected="expected", actual="actual")
+
+        self.assertEqual(result["status"], "found")
+        self.assertEqual(result["first_divergence"]["time"], 10)
+
     def test_first_divergence_compares_after_all_same_time_updates(self) -> None:
         result = first_divergence_vcd(FIXTURE, expected="tb.expected", actual="tb.actual")
         self.assertEqual(result["status"], "found")

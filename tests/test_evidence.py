@@ -55,7 +55,16 @@ class EvidenceTests(unittest.TestCase):
             implementation_top="equiv_reference",
             depth=1,
         )
+        undefined = EquivalenceInputBundle.create(
+            [FIXTURES / "equiv_reference.sv"],
+            [FIXTURES / "equiv_implementation.sv"],
+            reference_top="equiv_reference",
+            implementation_top="equiv_implementation",
+            depth=1,
+            input_domain="undefined",
+        )
         self.assertNotEqual(forward.input_hash, reverse.input_hash)
+        self.assertNotEqual(forward.input_hash, undefined.input_hash)
         self.assertEqual([item["index"] for item in forward.subject_hashes], [0, 1])
 
     def test_formal_rejects_unbounded_or_boolean_depth(self) -> None:
@@ -219,9 +228,29 @@ class EvidenceTests(unittest.TestCase):
                 depth=1,
                 artifact_root=directory,
             )
+            undefined = run_yosys_equivalence(
+                reference_sources=[FIXTURES / "equiv_reference.sv"],
+                implementation_sources=[FIXTURES / "equiv_implementation.sv"],
+                reference_top="equiv_reference",
+                implementation_top="equiv_implementation",
+                depth=1,
+                input_domain="undefined",
+                artifact_root=directory,
+            )
+            defined_script = next(
+                Path(path) for path in equivalent["artifacts"] if Path(path).name == "equivalence.ys"
+            ).read_text(encoding="utf-8")
+            undefined_script = next(
+                Path(path) for path in undefined["artifacts"] if Path(path).name == "equivalence.ys"
+            ).read_text(encoding="utf-8")
         self.assertEqual(equivalent["status"], "pass", equivalent["summary"])
         self.assertTrue(equivalent["summary"]["equivalent"])
         self.assertEqual(equivalent["summary"]["mode"], "combinational")
+        self.assertEqual(equivalent["summary"]["input_domain"], "defined")
+        self.assertNotIn("equiv_simple -undef", defined_script)
+        self.assertEqual(undefined["status"], "pass", undefined["summary"])
+        self.assertEqual(undefined["summary"]["input_domain"], "undefined")
+        self.assertIn("equiv_simple -undef", undefined_script)
         self.assertEqual(mismatch["status"], "fail", mismatch["summary"])
         self.assertFalse(mismatch["summary"]["equivalent"])
         self.assertEqual(len(equivalent["subject_hashes"]), 2)

@@ -32,7 +32,7 @@ jobs:
         run: |
           ruff format --check src tests evals tools .agents/skills/rtl-ass/scripts
           ruff check src tests evals tools .agents/skills/rtl-ass/scripts
-          mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py evals/run_codex_ab.py
+          mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py evals/run_codex_ab.py evals/workflow_cases.py
       - name: JSON Schema contracts
         run: |
           python - <<'PY'

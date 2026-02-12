@@ -10,6 +10,11 @@ All notable changes use semantic versioning.
 - Pinned current GitHub Actions releases by commit SHA to keep CI reproducible and remove deprecated Node.js runtime warnings.
 - Added an isolated Codex skill-off/skill-on workflow auditor with sanitized JSONL observability, exact activation detection, hidden external grading, normalized evidence binding, infrastructure-failure exclusion, and a transparent non-power-of-two FIFO fixture.
 - Strengthened the skill delivery contract so material RTL changes produce separate hashed lint, self-checking simulation, and synthesis evidence without replacing Codex's design decisions.
+- Expanded the auditor to six first-party workflow classes: specification-to-RTL, FIFO repair, RTL/testbench attribution, native FST localization, SystemVerilog signed-width repair, and timing-aware refinement.
+- Added fixture/prompt/grader/harness/skill/runtime/payload identities, isolated on-only runtime delivery, explicit candidate/deliverable/task outcomes, Wilson intervals, paired outcomes, and a reviewed 30-pair result.
+- Fixed leaf-name waveform glob matching, explicit defined/undefined equivalence domains, FST evidence recognition, inherited `PYTHONPATH` leakage, and false activation from successful compound module probes.
+- Corrected the public FIFO manifest's stale minimum-evidence field to match the executed lint/simulation/synthesis protocol; supplemental formal outcomes remain separate and are never inferred as passing.
+- Removed transient bytecode and symlinks from evaluated runtime identity/copying, excluded infrastructure failures consistently from aggregate workflow metrics, and reran all six final campaigns with a clean-clone-stable payload hash.
 
 ## 1.0.0 — 2026-08-31
 

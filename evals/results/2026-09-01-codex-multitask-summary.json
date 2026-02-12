@@ -1,0 +1,229 @@
+{
+  "schema_version": "1.0",
+  "campaign": "rtl-ass-six-class-paired-workflow-audit",
+  "date": "2026-09-01",
+  "effectiveness_status": "workflow_mechanism_validated_general_correctness_uplift_not_established",
+  "environment": {
+    "codex_version": "codex-cli 0.148.0",
+    "model": "gpt-5.6-sol",
+    "reasoning_effort": "medium",
+    "replicates_per_condition": 5,
+    "timeout_seconds": 600,
+    "sandbox": "danger-full-access",
+    "sandbox_context": "externally isolated disposable evaluation workspaces"
+  },
+  "identity": {
+    "harness_hash": "7ea68fd2bbfdcc9aeb45f97847f0b0972fa08dc3139f8f8270ba93669d58e722",
+    "skill_hash": "8f6a2063a97521729eae1c04ccdf09232ed0fa27ff7ee28cf75b37d034527704",
+    "runtime_hash": "acab6c1f573160c4209391a319170680059f33cc09675d25d1cd1606d72fd62d",
+    "on_payload_hash": "14eccf7a04e5db2a9a5bfce1092941d617098df2571db6729c9d1ef5ec514cea"
+  },
+  "aggregate_descriptive_only": {
+    "runs_per_condition": 30,
+    "off": {
+      "candidate_correct": 28,
+      "task_successes": 23,
+      "deliverable_complete": 23,
+      "complete_structured_evidence": 0,
+      "observed_skill_use": 0,
+      "timeouts": 0,
+      "duration_seconds": 10122.614,
+      "input_tokens": 11063611,
+      "output_tokens": 238965
+    },
+    "on": {
+      "candidate_correct": 30,
+      "task_successes": 29,
+      "deliverable_complete": 30,
+      "complete_structured_evidence": 30,
+      "observed_skill_use": 30,
+      "timeouts": 1,
+      "duration_seconds": 10148.982,
+      "input_tokens": 14394826,
+      "output_tokens": 230276
+    }
+  },
+  "cases": [
+    {
+      "id": "spec-ready-valid-register",
+      "prompt_hash": "f254acd43d58a0f8859c6ce23203857ed5499c6ab94482f284d5a5d799c8fc42",
+      "fixture_hash": "475077fbdb7cf6a1987e68bc91948456009dcd44287e2addd03bd7420912441d",
+      "hidden_grader_hash": "dcdb34ae9f23d78ea589ef1f0371b2d5e73d484fed8bc4b39fdd12c1feb07b69",
+      "report_hash": "47e246cd3253a99cb701795d5cb63479944fe1b6248ed981457075f2c1326a8b",
+      "off": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 1482.917,
+        "input_tokens": 1129418,
+        "output_tokens": 36460
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 0,
+        "duration_seconds": 1938.294,
+        "input_tokens": 2129858,
+        "output_tokens": 47523
+      }
+    },
+    {
+      "id": "attribute-nba-scoreboard",
+      "prompt_hash": "efa536825239a155dce5cb06aa80970f1d4fd7fc9be5a59ba3423c768bb597de",
+      "fixture_hash": "c98c2529c2071fb76f3647bd1e932d5b25abdff3c7b9a8bd077cd9f62362e93d",
+      "hidden_grader_hash": "087d419bd34d4dc0379b1f3830a307e42b5d36c76097f8d3193cb4fface768cc",
+      "report_hash": "dce62d2f267586cbd9aa66e7d72120ea4fd34b0792be1a04bfdc18eaea385c62",
+      "off": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 1127.288,
+        "input_tokens": 1057853,
+        "output_tokens": 26741
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 0,
+        "duration_seconds": 1558.521,
+        "input_tokens": 1925196,
+        "output_tokens": 37123
+      }
+    },
+    {
+      "id": "systemverilog-signed-width",
+      "prompt_hash": "d2981249223873e77171ce2c9fb0f0adcaf70789c5470005f2e8950e170fe1f3",
+      "fixture_hash": "d81bd1ac3fa8e28575113c22b3ca540d21d8fd64b8aa91c7feb71b9f17c66977",
+      "hidden_grader_hash": "341bf0b1838c4b99178efc8208a012b5c50788ef00fcbb36b647ba67a5a9404f",
+      "report_hash": "c59f9bcc1abe18803c0de419505dd8bb09108b6e97a5fb51abc4fb14e7196a02",
+      "off": {
+        "candidate_correct": 4,
+        "task_successes": 4,
+        "deliverable_complete": 4,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 2179.558,
+        "input_tokens": 2812101,
+        "output_tokens": 53766
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 0,
+        "duration_seconds": 2173.337,
+        "input_tokens": 3333912,
+        "output_tokens": 53994
+      }
+    },
+    {
+      "id": "timing-refine-priority-path",
+      "prompt_hash": "2c23d4aa2dcd089bb9f9cbd4a127ea8fbb9118cfa025e89317993b10d0faee36",
+      "fixture_hash": "38cb532ad2cb2e0d79e536f9f14da11ad3fd578fb83a9a8df689dcc2bdb882b9",
+      "hidden_grader_hash": "7f47525a97a373172777ffdef11bfe2a7dd200d16c78a09e4edeb93f155fe8f2",
+      "report_hash": "f696366ba08a6331469d3e5160082f70596bae646d6920517e7407ff79546207",
+      "off": {
+        "candidate_correct": 4,
+        "task_successes": 4,
+        "deliverable_complete": 4,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 2248.074,
+        "input_tokens": 2738145,
+        "output_tokens": 53087
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 0,
+        "duration_seconds": 1388.013,
+        "input_tokens": 2359913,
+        "output_tokens": 33576
+      }
+    },
+    {
+      "id": "waveform-first-divergence",
+      "prompt_hash": "f1d86c2734397284345b9896a6d1d8484e2d4aba082e9614c63a347173340e54",
+      "fixture_hash": "2c713b1f1d6652cc29bc38b54cc75199a001026126aac5ee6d429b23349b993b",
+      "hidden_grader_hash": "7a50ca0739d8d055e24ffeb80385479e979765277cd637b5d4c5e80d5b1ae98d",
+      "report_hash": "51f0ae80aa0892bf68566e9ecee2c50ce1d1efef90272e4e6d12d1a92a66fc26",
+      "off": {
+        "candidate_correct": 5,
+        "task_successes": 0,
+        "deliverable_complete": 0,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 1168.199,
+        "input_tokens": 1488960,
+        "output_tokens": 26996
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 0,
+        "duration_seconds": 813.402,
+        "input_tokens": 1263474,
+        "output_tokens": 18182
+      }
+    },
+    {
+      "id": "repair-non-power-of-two-fifo",
+      "prompt_hash": "5e41153218b094527b504cdc8e980dae0c5c71092498a7805a2b5a90f9257319",
+      "fixture_hash": "e5a2202bff52742e2fa377c03104f46dc0d23d0d6a2f797a88d882abf7d24490",
+      "hidden_grader_hash": "d062e38b73c66e2d9179df6d52173ddf033388a1fea69016cf0ffe43bbd2a231",
+      "report_hash": "373dd6eb62efc76b7e34e658aaadc3d04423eb08126aa7a1055e533fe17bc8aa",
+      "off": {
+        "candidate_correct": 5,
+        "task_successes": 5,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 0,
+        "observed_skill_use": 0,
+        "timeouts": 0,
+        "duration_seconds": 1916.578,
+        "input_tokens": 1837134,
+        "output_tokens": 41915
+      },
+      "on": {
+        "candidate_correct": 5,
+        "task_successes": 4,
+        "deliverable_complete": 5,
+        "complete_structured_evidence": 5,
+        "observed_skill_use": 5,
+        "timeouts": 1,
+        "duration_seconds": 2277.415,
+        "input_tokens": 3382473,
+        "output_tokens": 39878
+      }
+    }
+  ],
+  "limitations": [
+    "Five pairs per task produce wide per-task confidence intervals.",
+    "The six cases are transparent first-party fixtures, not a secret benchmark.",
+    "Codex exec exposed no deterministic seed, so pairs are independent replications.",
+    "The externally isolated danger-full-access environment is not the default workspace-write sandbox.",
+    "Aggregate counts are descriptive because task contracts and difficulty are heterogeneous."
+  ]
+}

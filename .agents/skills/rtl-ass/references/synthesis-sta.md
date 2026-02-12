@@ -14,7 +14,9 @@ Yosys `stat` is not STA. Generic delay estimates are not signoff. OpenSTA withou
 
 A finite SAT depth is bounded evidence, not an unbounded proof. Bind the depth, top, ordered source hashes, initialization policy, assumptions, and defined-input policy into the run identity. Reject an empty assertion scope. Preserve a generated counterexample waveform on failure, and classify syntax/elaboration/tool failures as `blocked` rather than a disproved property.
 
-Equivalence must bind separate reference and implementation identities. Depth 1 may support a combinational equivalence claim after compatible elaboration; a larger `equiv_simple -seq` depth is bounded-sequential evidence. Unproven `$equiv` cells are a failed equivalence result, while interface/elaboration/tool failures are blocked evidence.
+Equivalence must bind separate reference and implementation identities. Depth 1 may support a combinational equivalence claim after compatible elaboration; a larger `equiv_simple -seq` depth is bounded-sequential evidence. The default `--input-domain defined` proves ordinary hardware bit behavior. Use `--input-domain undefined` only when X/undefined propagation is part of the stated contract; algebraically equivalent topologies can intentionally differ there. The input domain is part of the evidence hash. Unproven `$equiv` cells are a failed equivalence result, while interface/elaboration/tool failures are blocked evidence.
+
+If either side depends on packages, interfaces, or functional cell models, pass each dependency explicitly with repeated `--reference-source` and `--implementation-source` options in compilation order. Do not rely on a relative Verilog `` `include `` path: the evidence runner executes Yosys from its isolated artifact directory.
 
 For STA record each clock/path group, setup and hold metrics, constrained/unconstrained endpoint counts, corner/library, command, input hashes, and raw reports. Audit false paths and multicycle paths; do not introduce them only to remove violations.
 

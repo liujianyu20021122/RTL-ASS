@@ -7,6 +7,7 @@ import argparse
 import concurrent.futures
 import hashlib
 import json
+import math
 import os
 import shutil
 import subprocess
@@ -14,38 +15,58 @@ import time
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
-from rtl_ass.evidence import run_iverilog_simulation, run_verilator_lint, run_yosys_synthesis
 from rtl_ass.integrity import canonical_json, hash_file
 from rtl_ass.tools import discover_tools
 
+if __package__:
+    from .workflow_cases import CASES, WorkflowCase, get_case
+else:
+    # Direct-file execution places evals/ rather than the repository root on
+    # sys.path. Keep that supported because the documented audit command uses
+    # this file directly; module execution continues to use the package import.
+    from workflow_cases import CASES, WorkflowCase, get_case  # type: ignore[import-not-found,no-redef]
+
 ROOT = Path(__file__).resolve().parents[1]
-CASE_ROOT = ROOT / "evals" / "workflow_cases" / "non_power_two_fifo"
-PUBLIC_FIXTURE = CASE_ROOT / "public"
-HIDDEN_TESTBENCH = CASE_ROOT / "private" / "sync_fifo_hidden_tb.sv"
 SKILL_ROOT = ROOT / ".agents" / "skills" / "rtl-ass"
-PROMPT = """Diagnose and minimally repair the depth-three synchronous FIFO in this repository.
-Preserve its module interface, reset behavior, externally visible latency, parameterization, and test intent.
-Do not weaken or rewrite the supplied testbench. Run the strongest relevant open-source verification available.
-In the final response, state the root cause, exact files changed, and executed evidence with its scope.
-"""
+DEFAULT_CASE_ID = "repair-non-power-of-two-fifo"
+SOURCE_TREE_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
 AGENT_RULES = """# Evaluation workspace
 
 Repair only the supplied RTL task. Do not access files outside this repository.
 Preserve the interface and latency contract, do not weaken tests, and use only open-source tools.
 Generated evidence may be written under artifacts/. Do not commit changes.
 """
-REQUIRED_EVIDENCE = frozenset({"lint", "simulation", "synthesis"})
 
 
 def _hash_tree(root: Path) -> str:
     digest = hashlib.sha256()
-    for path in sorted(item for item in root.rglob("*") if item.is_file()):
+    paths = (
+        item
+        for item in root.rglob("*")
+        if item.is_file()
+        and not item.is_symlink()
+        and "__pycache__" not in item.parts
+        and item.suffix not in {".pyc", ".pyo"}
+    )
+    for path in sorted(paths):
         relative = path.relative_to(root).as_posix().encode("utf-8")
         content = path.read_bytes()
         digest.update(len(relative).to_bytes(8, "big"))
         digest.update(relative)
+        digest.update(len(content).to_bytes(8, "big"))
+        digest.update(content)
+    return digest.hexdigest()
+
+
+def _hash_files(paths: Iterable[Path]) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(paths):
+        content = path.read_bytes()
+        name = path.relative_to(ROOT).as_posix().encode("utf-8")
+        digest.update(len(name).to_bytes(8, "big"))
+        digest.update(name)
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
     return digest.hexdigest()
@@ -70,15 +91,27 @@ def _subprocess_text(value: str | bytes | None) -> str:
     return ""
 
 
-def _prepare_workspace(workspace: Path, condition: str) -> dict[str, str]:
+def _prepare_workspace(workspace: Path, condition: str, case: WorkflowCase | None = None) -> dict[str, str]:
+    selected_case = case or get_case(DEFAULT_CASE_ID)
+    if condition not in {"off", "on"}:
+        raise ValueError(f"unknown evaluation condition: {condition}")
     if workspace.exists():
         raise RuntimeError(f"refusing to reuse evaluation workspace: {workspace}")
-    shutil.copytree(PUBLIC_FIXTURE, workspace)
+    shutil.copytree(selected_case.public_fixture, workspace)
+    initial = {
+        path.relative_to(workspace).as_posix(): hash_file(path)
+        for path in sorted(item for item in workspace.rglob("*") if item.is_file() and not item.is_symlink())
+    }
     (workspace / "AGENTS.md").write_text(AGENT_RULES, encoding="utf-8")
     if condition == "on":
         destination = workspace / ".agents" / "skills" / "rtl-ass"
         destination.parent.mkdir(parents=True)
-        shutil.copytree(SKILL_ROOT, destination)
+        shutil.copytree(SKILL_ROOT, destination, ignore=SOURCE_TREE_IGNORE)
+        shutil.copytree(
+            ROOT / "src" / "rtl_ass",
+            workspace / "src" / "rtl_ass",
+            ignore=SOURCE_TREE_IGNORE,
+        )
     commands = (
         ["git", "init", "-b", "main"],
         ["git", "config", "user.name", "RTL-ASS Eval"],
@@ -90,11 +123,8 @@ def _prepare_workspace(workspace: Path, condition: str) -> dict[str, str]:
         result = _run(command, cwd=workspace)
         if result.returncode != 0:
             raise RuntimeError(f"workspace setup failed: {command}: {result.stderr.strip()}")
-    return {
-        "rtl_hash": hash_file(workspace / "rtl" / "sync_fifo.sv"),
-        "testbench_hash": hash_file(workspace / "tb" / "sync_fifo_visible_tb.sv"),
-        "repository_head": _run(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip(),
-    }
+    initial["repository_head"] = _run(["git", "rev-parse", "HEAD"], cwd=workspace).stdout.strip()
+    return initial
 
 
 def _redact(text: str, workspace: Path) -> str:
@@ -112,6 +142,8 @@ def _redact(text: str, workspace: Path) -> str:
 def _command_kinds(command: str) -> set[str]:
     lowered = command.lower()
     kinds: set[str] = set()
+    if "--help" in lowered:
+        return kinds
     if "verilator" in lowered or "verify lint" in lowered:
         kinds.add("lint")
     if "iverilog" in lowered or " vvp" in lowered or "verify simulate" in lowered:
@@ -120,6 +152,12 @@ def _command_kinds(command: str) -> set[str]:
         kinds.add("formal")
     if "verify synth" in lowered or ("yosys" in lowered and "synth" in lowered):
         kinds.add("synthesis")
+    if "verify equiv" in lowered or ("yosys" in lowered and "equiv_" in lowered):
+        kinds.add("equivalence")
+    if " wave query" in lowered or " wave diff" in lowered:
+        kinds.add("waveform")
+    if "verify sta" in lowered or "opensta" in lowered or " sta " in lowered:
+        kinds.add("sta")
     return kinds
 
 
@@ -133,6 +171,12 @@ def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
     thread_ids: list[str] = []
     executed_kinds: set[str] = set()
     skill_signals: set[str] = set()
+    workspace_skill = workspace / ".agents" / "skills" / "rtl-ass"
+    matching_skill = all(
+        candidate.is_file() and not candidate.is_symlink() and hash_file(candidate) == hash_file(SKILL_ROOT / relative)
+        for relative in ("SKILL.md", "scripts/rtl_ass.py")
+        for candidate in (workspace_skill / relative,)
+    )
     invalid_lines = 0
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
@@ -186,9 +230,11 @@ def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
         command_succeeded = item.get("status") == "completed" and exit_code == 0
         if command_succeeded:
             executed_kinds.update(_command_kinds(command))
-            if ".agents/skills/rtl-ass/scripts/rtl_ass.py" in command or "python3 -m rtl_ass" in command:
+            if matching_skill and ".agents/skills/rtl-ass/scripts/rtl_ass.py" in command:
                 skill_signals.add("helper-command")
-            if ".agents/skills/rtl-ass/SKILL.md" in command or ".agents/skills/rtl-ass/references" in command:
+            if matching_skill and (
+                ".agents/skills/rtl-ass/SKILL.md" in command or ".agents/skills/rtl-ass/references" in command
+            ):
                 skill_signals.add("skill-file-read")
     return {
         "event_counts": dict(sorted(event_counts.items())),
@@ -248,11 +294,43 @@ def _workspace_evidence(workspace: Path) -> list[dict[str, Any]]:
                 "file_hash": hash_file(path),
             }
         )
+    for path in sorted(workspace.rglob("*.json")):
+        if path.name == "run-evidence.json" or path.is_symlink():
+            continue
+        try:
+            value = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            continue
+        if not isinstance(value, dict) or value.get("kind") not in {
+            "vcd-query",
+            "fst-query",
+            "vcd-first-divergence",
+            "fst-first-divergence",
+            "wave-divergence",
+        }:
+            continue
+        waveform_hash = value.get("waveform_hash")
+        records.append(
+            {
+                "path": path.relative_to(workspace).as_posix(),
+                "valid_json": True,
+                "kind": "waveform",
+                "status": "pass" if value.get("status") in {"complete", "found"} else value.get("status"),
+                "input_hash": waveform_hash,
+                "top": None,
+                "subject_hashes": (
+                    [{"index": 0, "path": value.get("waveform"), "content_hash": waveform_hash}]
+                    if isinstance(waveform_hash, str)
+                    else []
+                ),
+                "file_hash": hash_file(path),
+            }
+        )
     return records
 
 
 def _current_passed_evidence_kinds(
-    records: Iterable[dict[str, Any]], *, candidate_hash: str, visible_testbench_hash: str
+    records: Iterable[dict[str, Any]], *, expected_subjects: Mapping[str, Iterable[str | None]]
 ) -> list[str]:
     kinds: set[str] = set()
     for record in records:
@@ -264,64 +342,23 @@ def _current_passed_evidence_kinds(
             for subject in record.get("subject_hashes", [])
             if isinstance(subject, dict) and isinstance(subject.get("content_hash"), str)
         }
-        if candidate_hash not in subject_hashes:
+        if kind not in expected_subjects:
             continue
-        if kind == "simulation" and visible_testbench_hash not in subject_hashes:
+        required_hashes = {value for value in expected_subjects[kind] if isinstance(value, str)}
+        if required_hashes and not required_hashes.issubset(subject_hashes):
             continue
         kinds.add(kind)
     return sorted(kinds)
 
 
-def _grade(workspace: Path, run_root: Path, initial: dict[str, str]) -> dict[str, Any]:
-    candidate = workspace / "rtl" / "sync_fifo.sv"
-    visible_testbench = workspace / "tb" / "sync_fifo_visible_tb.sv"
-    evidence_root = run_root / "grader-evidence"
-    if not candidate.is_file() or candidate.is_symlink():
-        return {"correct": False, "error": "candidate_not_regular_file"}
-    lint = run_verilator_lint([candidate], top="sync_fifo", artifact_root=evidence_root)
-    simulation = run_iverilog_simulation(
-        [candidate, HIDDEN_TESTBENCH],
-        top="sync_fifo_hidden_tb",
-        artifact_root=evidence_root,
-    )
-    synthesis = run_yosys_synthesis([candidate], top="sync_fifo", artifact_root=evidence_root)
-    changed = _run(["git", "diff", "--name-only", "HEAD"], cwd=workspace)
-    status = _run(["git", "status", "--short"], cwd=workspace)
-    visible_hash = (
-        hash_file(visible_testbench) if visible_testbench.is_file() and not visible_testbench.is_symlink() else None
-    )
-    statuses = {item["kind"]: item["status"] for item in (lint, simulation, synthesis)}
-    candidate_hash = hash_file(candidate)
-    source_changed = candidate_hash != initial["rtl_hash"]
-    visible_testbench_unchanged = visible_hash == initial["testbench_hash"]
-    tracked_changed_files = [line for line in changed.stdout.splitlines() if line]
-    return {
-        "correct": (
-            all(statuses.get(kind) == "pass" for kind in REQUIRED_EVIDENCE)
-            and source_changed
-            and visible_testbench_unchanged
-            and tracked_changed_files == ["rtl/sync_fifo.sv"]
-        ),
-        "grader_statuses": statuses,
-        "candidate_hash": candidate_hash,
-        "source_changed": source_changed,
-        "visible_testbench_unchanged": visible_testbench_unchanged,
-        "tracked_changed_files": tracked_changed_files,
-        "git_status": status.stdout.splitlines(),
-        "evidence": [
-            {
-                "kind": item["kind"],
-                "status": item["status"],
-                "input_hash": item["input_hash"],
-                "evidence_file_hash": (
-                    hash_file(item["evidence_file"])
-                    if isinstance(item.get("evidence_file"), str) and Path(item["evidence_file"]).is_file()
-                    else None
-                ),
-            }
-            for item in (lint, simulation, synthesis)
-        ],
-    }
+def _grade(
+    workspace: Path,
+    run_root: Path,
+    initial: dict[str, str],
+    case: WorkflowCase | None = None,
+) -> dict[str, Any]:
+    selected_case = case or get_case(DEFAULT_CASE_ID)
+    return selected_case.grade(workspace, run_root, initial)
 
 
 def _codex_version(executable: str) -> str:
@@ -341,12 +378,13 @@ def _run_one(
     output: Path,
     replicate: int,
     condition: str,
+    case: WorkflowCase,
 ) -> dict[str, Any]:
     run_id = f"pair-{replicate:02d}-{condition}"
     run_root = output / "runs" / run_id
     workspace = run_root / "workspace"
     run_root.mkdir(parents=True)
-    initial = _prepare_workspace(workspace, condition)
+    initial = _prepare_workspace(workspace, condition, case)
     trace_path = run_root / "trace.raw.jsonl"
     stderr_path = run_root / "codex.stderr.txt"
     command = [
@@ -363,7 +401,7 @@ def _run_one(
         f'model_reasoning_effort="{effort}"',
         "-C",
         str(workspace),
-        PROMPT,
+        case.prompt,
     ]
     environment = os.environ.copy()
     original_codex_home = Path(environment.get("CODEX_HOME", Path.home() / ".codex"))
@@ -373,10 +411,10 @@ def _run_one(
     if auth_source.is_file():
         shutil.copy2(auth_source, isolated_codex_home / "auth.json")
     elif "CODEX_API_KEY" not in environment:
+        isolated_codex_home.rmdir()
         raise RuntimeError("Codex authentication is unavailable for the isolated evaluation home")
     environment["CODEX_HOME"] = str(isolated_codex_home)
-    existing_pythonpath = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = str(ROOT / "src") + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+    environment.pop("PYTHONPATH", None)
     started_at = datetime.now(UTC).isoformat()
     started_monotonic = time.monotonic()
     timed_out = False
@@ -409,20 +447,17 @@ def _run_one(
         marker in observable_text for marker in ("Failed RTM_NEWADDR", "sandbox failure", "execution sandbox", "bwrap:")
     )
     agent_evidence = _workspace_evidence(workspace)
-    grade = _grade(workspace, run_root, initial)
-    candidate_hash = grade.get("candidate_hash")
-    visible_testbench = workspace / "tb" / "sync_fifo_visible_tb.sv"
-    if isinstance(candidate_hash, str) and visible_testbench.is_file() and not visible_testbench.is_symlink():
-        current_passed_evidence_kinds = _current_passed_evidence_kinds(
-            agent_evidence,
-            candidate_hash=candidate_hash,
-            visible_testbench_hash=hash_file(visible_testbench),
-        )
-    else:
-        current_passed_evidence_kinds = []
+    grade = _grade(workspace, run_root, initial, case)
+    expected_subjects = grade.get("expected_agent_evidence_subjects")
+    current_passed_evidence_kinds = (
+        _current_passed_evidence_kinds(agent_evidence, expected_subjects=expected_subjects)
+        if isinstance(expected_subjects, dict)
+        else []
+    )
     result = {
         "schema_version": "1.0",
         "run_id": run_id,
+        "case": case.identifier,
         "replicate": replicate,
         "condition": condition,
         "started_at": started_at,
@@ -440,18 +475,23 @@ def _run_one(
         "current_passed_evidence_kinds": current_passed_evidence_kinds,
         "grade": grade,
     }
-    result["task_success"] = not timed_out and return_code == 0 and bool(grade.get("correct"))
+    result["deliverable_complete"] = bool(grade.get("complete", grade.get("correct")))
+    result["task_success"] = not timed_out and return_code == 0 and result["deliverable_complete"]
     (run_root / "result.sanitized.json").write_text(
         json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
     return result
 
 
-def _paired_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
+def _paired_summary(
+    results: Iterable[dict[str, Any]], required_evidence: frozenset[str] | None = None
+) -> dict[str, Any]:
     items = list(results)
+    required = required_evidence or get_case(DEFAULT_CASE_ID).required_evidence
 
     def task_success(item: dict[str, Any]) -> bool:
-        return not item["timed_out"] and item["codex_return_code"] == 0 and bool(item["grade"].get("correct"))
+        complete = bool(item.get("deliverable_complete", item["grade"].get("complete", item["grade"].get("correct"))))
+        return not item["timed_out"] and item["codex_return_code"] == 0 and complete
 
     conditions: dict[str, dict[str, Any]] = {}
     for condition in ("off", "on"):
@@ -459,28 +499,34 @@ def _paired_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
         valid_items = [item for item in selected if not item["infrastructure_failure"]]
         successes = sum(task_success(item) for item in valid_items)
         candidate_correct = sum(bool(item["grade"].get("correct")) for item in valid_items)
+        deliverable_complete = sum(
+            bool(item.get("deliverable_complete", item["grade"].get("complete", item["grade"].get("correct"))))
+            for item in valid_items
+        )
         valid = len(valid_items)
-        observed_skill = sum(bool(item["trace"]["skill_signals"]) for item in selected)
-        complete_commands = sum(
-            REQUIRED_EVIDENCE.issubset(item["trace"]["executed_evidence_kinds"]) for item in selected
-        )
-        structured_evidence = sum(
-            REQUIRED_EVIDENCE.issubset(item["current_passed_evidence_kinds"]) for item in selected
-        )
+        observed_skill = sum(bool(item["trace"]["skill_signals"]) for item in valid_items)
+        complete_commands = sum(required.issubset(item["trace"]["executed_evidence_kinds"]) for item in valid_items)
+        structured_evidence = sum(required.issubset(item["current_passed_evidence_kinds"]) for item in valid_items)
         conditions[condition] = {
             "runs": len(selected),
             "valid_runs": valid,
             "task_successes": successes,
             "task_success_rate": successes / valid if valid else None,
+            "task_success_wilson_95": _wilson_interval(successes, valid),
             "candidate_correct": candidate_correct,
             "candidate_correct_rate": candidate_correct / valid if valid else None,
+            "candidate_correct_wilson_95": _wilson_interval(candidate_correct, valid),
+            "deliverable_complete": deliverable_complete,
+            "deliverable_complete_rate": deliverable_complete / valid if valid else None,
+            "deliverable_complete_wilson_95": _wilson_interval(deliverable_complete, valid),
             "timeouts": sum(bool(item["timed_out"]) for item in valid_items),
             "observed_skill_use": observed_skill,
             "complete_evidence_commands": complete_commands,
             "complete_structured_evidence": structured_evidence,
-            "input_tokens": sum(int(item["trace"]["usage"].get("input_tokens", 0)) for item in selected),
-            "output_tokens": sum(int(item["trace"]["usage"].get("output_tokens", 0)) for item in selected),
-            "duration_seconds": round(sum(float(item["duration_seconds"]) for item in selected), 3),
+            "structured_evidence_wilson_95": _wilson_interval(structured_evidence, valid),
+            "input_tokens": sum(int(item["trace"]["usage"].get("input_tokens", 0)) for item in valid_items),
+            "output_tokens": sum(int(item["trace"]["usage"].get("output_tokens", 0)) for item in valid_items),
+            "duration_seconds": round(sum(float(item["duration_seconds"]) for item in valid_items), 3),
         }
     paired = []
     for replicate in sorted({int(item["replicate"]) for item in items}):
@@ -494,6 +540,18 @@ def _paired_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
                 "on_success": task_success(pair["on"]),
                 "off_candidate_correct": bool(pair["off"]["grade"].get("correct")),
                 "on_candidate_correct": bool(pair["on"]["grade"].get("correct")),
+                "off_deliverable_complete": bool(
+                    pair["off"].get(
+                        "deliverable_complete",
+                        pair["off"]["grade"].get("complete", pair["off"]["grade"].get("correct")),
+                    )
+                ),
+                "on_deliverable_complete": bool(
+                    pair["on"].get(
+                        "deliverable_complete",
+                        pair["on"]["grade"].get("complete", pair["on"]["grade"].get("correct")),
+                    )
+                ),
             }
         )
     valid_pairs = [item for item in paired if item["valid"]]
@@ -506,6 +564,16 @@ def _paired_summary(results: Iterable[dict[str, Any]]) -> dict[str, Any]:
     return {"conditions": conditions, "paired_outcomes": paired, "paired_comparisons": comparisons}
 
 
+def _wilson_interval(successes: int, total: int, z: float = 1.959963984540054) -> list[float] | None:
+    if total == 0:
+        return None
+    proportion = successes / total
+    denominator = 1.0 + z * z / total
+    center = (proportion + z * z / (2.0 * total)) / denominator
+    margin = z * math.sqrt(proportion * (1.0 - proportion) / total + z * z / (4.0 * total * total)) / denominator
+    return [round(max(0.0, center - margin), 6), round(min(1.0, center + margin), 6)]
+
+
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
@@ -515,6 +583,7 @@ def main(arguments: list[str] | None = None) -> int:
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--model", default="gpt-5.6-sol")
     parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh"), default="high")
+    parser.add_argument("--case", choices=sorted(CASES), default=DEFAULT_CASE_ID)
     parser.add_argument(
         "--sandbox",
         choices=("workspace-write", "danger-full-access"),
@@ -529,6 +598,7 @@ def main(arguments: list[str] | None = None) -> int:
         raise SystemExit(f"refusing to reuse output directory: {output}")
     output.mkdir(parents=True)
     codex_version = _codex_version(args.codex)
+    case = get_case(args.case)
     jobs: list[tuple[int, str]] = [
         (replicate, condition)
         for replicate in range(1, args.replicates + 1)
@@ -547,6 +617,7 @@ def main(arguments: list[str] | None = None) -> int:
                 output=output,
                 replicate=replicate,
                 condition=condition,
+                case=case,
             )
             for replicate, condition in jobs
         ]
@@ -560,6 +631,7 @@ def main(arguments: list[str] | None = None) -> int:
                         "return_code": result["codex_return_code"],
                         "task_success": result["task_success"],
                         "candidate_correct": result["grade"].get("correct", False),
+                        "deliverable_complete": result["deliverable_complete"],
                     },
                     sort_keys=True,
                 ),
@@ -570,25 +642,29 @@ def main(arguments: list[str] | None = None) -> int:
         "schema_version": "1.0",
         "kind": "codex-skill-workflow-audit",
         "generated_at": datetime.now(UTC).isoformat(),
-        "case": "repair-non-power-of-two-fifo",
-        "prompt_hash": hashlib.sha256(PROMPT.encode()).hexdigest(),
-        "fixture_hash": _hash_tree(PUBLIC_FIXTURE),
-        "hidden_grader_hash": hash_file(HIDDEN_TESTBENCH),
+        "case": case.identifier,
+        "prompt_hash": hashlib.sha256(case.prompt.encode()).hexdigest(),
+        "fixture_hash": _hash_tree(case.public_fixture),
+        "hidden_grader_hash": _hash_tree(case.public_fixture.parent / "private"),
+        "harness_hash": _hash_files((Path(__file__).resolve(), ROOT / "evals" / "workflow_cases.py")),
         "skill_hash": _hash_tree(SKILL_ROOT),
+        "runtime_hash": _hash_tree(ROOT / "src" / "rtl_ass"),
         "codex_version": codex_version,
         "model": args.model,
         "reasoning_effort": args.effort,
         "sandbox": args.sandbox,
         "replicates": args.replicates,
+        "required_evidence": sorted(case.required_evidence),
         "tool_discovery": discover_tools(),
         "trace_policy": {
             "raw_jsonl_local_only": True,
             "reasoning_content_retained_in_sanitized_results": False,
             "observable_items": ["agent_message", "command_execution", "file_change", "usage"],
         },
-        "summary": _paired_summary(results),
+        "summary": _paired_summary(results, case.required_evidence),
         "runs": results,
     }
+    report["on_payload_hash"] = hashlib.sha256(f"{report['skill_hash']}:{report['runtime_hash']}".encode()).hexdigest()
     report["report_hash"] = hashlib.sha256(canonical_json(report).encode()).hexdigest()
     (output / "report.sanitized.json").write_text(
         json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"

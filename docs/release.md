@@ -10,7 +10,7 @@ RTL-ASS uses semantic versioning. Schemas with `schema_version: 1.0`, CLI comman
 4. Validate and atomically import the starter pack; verify its audit chain.
 5. Build wheel, sdist, standalone skill archive, SPDX SBOM, and checksums in a clean output directory.
 6. Install the wheel into a new virtual environment and run the installed CLI plus the standalone skill launcher.
-7. Inspect wheel/sdist contents, run `twine check`, and confirm no database, waveform, cache, research checkout, token, absolute workstation path, or proprietary dependency is shipped.
+7. Inspect wheel/sdist contents, run `twine check`, and confirm no generated database/waveform, cache, research checkout, credential file/value, absolute workstation path, or proprietary dependency is shipped. Declared first-party evaluation VCD/FST fixtures are allowed and must be listed by the packaging audit.
 8. Commit, tag `v1.0.0`, push the public repository, create a GitHub release, upload all assets, and verify remote tag and asset hashes.
 
 If an optional tool is unavailable, its scope is recorded as `not_available`; it cannot be counted as passing evidence. A release must not be described as STA-closed, formally exhaustive, or signoff-quality beyond the exact executed scope.

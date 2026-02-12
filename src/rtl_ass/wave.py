@@ -19,6 +19,12 @@ class VcdSignal:
     name: str
 
 
+def _matches_signal(name: str, pattern: str) -> bool:
+    if fnmatch.fnmatchcase(name, pattern):
+        return True
+    return "." not in pattern and fnmatch.fnmatchcase(name.rsplit(".", 1)[-1], pattern)
+
+
 def _parse_var(directive: str, scopes: list[str]) -> VcdSignal:
     tokens = directive.split()
     if len(tokens) < 6 or tokens[0] != "$var" or tokens[-1] != "$end":
@@ -35,7 +41,7 @@ def _parse_var(directive: str, scopes: list[str]) -> VcdSignal:
 def _selected_names(signals: Iterable[VcdSignal], patterns: tuple[str, ...]) -> dict[str, list[VcdSignal]]:
     selected: dict[str, list[VcdSignal]] = {}
     for signal in signals:
-        if any(fnmatch.fnmatchcase(signal.name, pattern) for pattern in patterns):
+        if any(_matches_signal(signal.name, pattern) for pattern in patterns):
             selected.setdefault(signal.identifier, []).append(signal)
     if not selected:
         raise RtlAssError(
@@ -215,8 +221,8 @@ def build_first_divergence(
 ) -> dict[str, Any]:
     """Compare a completed or bounded waveform query after same-time updates."""
     names = [signal["name"] for signal in query["selected_signals"]]
-    expected_names = [name for name in names if fnmatch.fnmatchcase(name, expected)]
-    actual_names = [name for name in names if fnmatch.fnmatchcase(name, actual)]
+    expected_names = [name for name in names if _matches_signal(name, expected)]
+    actual_names = [name for name in names if _matches_signal(name, actual)]
     if len(expected_names) != 1 or len(actual_names) != 1:
         raise RtlAssError(
             "wave_diff_ambiguous",

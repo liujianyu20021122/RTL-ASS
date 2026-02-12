@@ -25,3 +25,15 @@ For FST, bind the original FST hash, converter executable hash/version, exact co
 - stale waveform from a different candidate.
 
 Do not report a waveform diff if no waveform parser or simulator event evidence was read.
+
+## Bounded query syntax
+
+Signal selectors are shell-style globs, not regular expressions. A selector containing a dot matches the full hierarchical name; a selector without a dot also matches leaf names. Repeat `--signal` for multiple signals. If a leaf name exists in several instances, use the full hierarchy before assigning causality.
+
+Preserve the machine-readable query beside the run artifacts so the waveform hash, window, selected signals, and events remain auditable:
+
+```bash
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query artifacts/failing.vcd \
+  --signal clk --signal valid_i --signal valid_o --start 100 --end 160 \
+  > artifacts/rtl-ass/wave-query.json
+```

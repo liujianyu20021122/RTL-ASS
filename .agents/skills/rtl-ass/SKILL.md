@@ -65,8 +65,8 @@ python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source <rtl.sv> 
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --source <rtl.sv> --source <tb.sv> --top <tb-top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source <rtl.sv> --top <top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --artifact-dir <dir>
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <pattern> --start <time> --end <time>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --input-domain defined --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <glob> --start <time> --end <time> > artifacts/rtl-ass/wave-query.json
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb search <query> --db <index.db> --namespace <name>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb derive <source-id> --db <index.db> --namespace <name> --actor <actor> --role <role> --language <language> --title <title> --summary <summary> --content-file <file> --source-path <path> --method <method>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb import-pack <pack.json> --db <index.db> --namespace <name> --actor <actor>
