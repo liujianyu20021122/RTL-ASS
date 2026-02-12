@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the representative RTL-ASS 1.0 open-tool and knowledge release audit."""
+"""Run the representative RTL-ASS 1.1 open-tool and knowledge release audit."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from rtl_ass.tools import discover_tools
 from rtl_ass.waveform import first_divergence_waveform, query_waveform
 
 ROOT = Path(__file__).resolve().parents[1]
+RELEASE_VERSION = "1.1.0"
 
 
 def _expect(result: dict[str, Any], expected: str, label: str) -> dict[str, Any]:
@@ -127,7 +128,7 @@ def run_audit(output: Path) -> dict[str, Any]:
 
     converter = shutil.which("vcd2fst")
     if converter is None:
-        raise RuntimeError("vcd2fst is required for the 1.0 release audit")
+        raise RuntimeError("vcd2fst is required for the 1.1 release audit")
     fst = run_root / "divergence.fst"
     subprocess.run([converter, str(waveform), str(fst)], check=True, capture_output=True)
     checks["fst_query"] = query_waveform(fst, patterns=("tb.expected", "tb.actual"), max_events=50)
@@ -146,7 +147,7 @@ def run_audit(output: Path) -> dict[str, Any]:
 
     summary = {
         "schema_version": "1.0",
-        "release": "1.0.0",
+        "release": RELEASE_VERSION,
         "generated_at": utc_now(),
         "status": "pass",
         "tool_discovery": discover_tools(),
