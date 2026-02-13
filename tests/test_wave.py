@@ -18,8 +18,11 @@ class WaveTests(unittest.TestCase):
     def test_fst_query_and_divergence_bind_original_and_conversion_hashes(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             fst_path = Path(temporary_directory) / "divergence.fst"
+            converter = shutil.which("vcd2fst")
+            if converter is None:
+                self.fail("vcd2fst disappeared after the availability check")
             conversion = subprocess.run(
-                [shutil.which("vcd2fst"), str(FIXTURE), str(fst_path)],
+                [converter, str(FIXTURE), str(fst_path)],
                 check=False,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -44,8 +47,11 @@ class WaveTests(unittest.TestCase):
     def test_fst_conversion_enforces_strict_expansion_limit(self) -> None:
         with TemporaryDirectory() as temporary_directory:
             fst_path = Path(temporary_directory) / "divergence.fst"
+            converter = shutil.which("vcd2fst")
+            if converter is None:
+                self.fail("vcd2fst disappeared after the availability check")
             subprocess.run(
-                [shutil.which("vcd2fst"), str(FIXTURE), str(fst_path)],
+                [converter, str(FIXTURE), str(fst_path)],
                 check=True,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from jsonschema import Draft202012Validator
+from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from referencing import Registry, Resource
 
 from rtl_ass.evidence import run_iverilog_simulation, run_yosys_equivalence, run_yosys_formal
@@ -85,7 +85,8 @@ class SchemaContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             fst_path = Path(directory) / "divergence.fst"
             result = shutil.which("vcd2fst")
-            self.assertIsNotNone(result)
+            if result is None:
+                self.fail("vcd2fst disappeared after the availability check")
             conversion = subprocess.run(
                 [result, str(FIXTURES / "divergence.vcd"), str(fst_path)],
                 check=False,

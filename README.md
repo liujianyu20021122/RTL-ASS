@@ -79,7 +79,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 PYTHONOPTIMIZE=1 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ruff format --check src tests .agents/skills/rtl-ass/scripts
 ruff check src tests .agents/skills/rtl-ass/scripts
-mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py evals/run_codex_ab.py evals/workflow_cases.py
+mypy src tests tools evals
 python3 -m build
 twine check dist/*
 ```

@@ -7,6 +7,7 @@ import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 from unittest import mock
 
 from rtl_ass.errors import RtlAssError
@@ -333,7 +334,7 @@ class KnowledgeDatabaseTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "evidence_changed")
         self.assertEqual(self._database_counts(), before)
 
-    def _gate_evidence(self, *, content_hash: str, bundle_hash: str) -> dict[str, object]:
+    def _gate_evidence(self, *, content_hash: str, bundle_hash: str) -> dict[str, Any]:
         dut = Path(self.tempdir.name) / "counter.sv"
         testbench = Path(self.tempdir.name) / "counter_tb.sv"
         dut.write_text(RTL, encoding="utf-8")
@@ -373,7 +374,7 @@ class KnowledgeDatabaseTests(unittest.TestCase):
         evidence_file.write_text(json.dumps(item, sort_keys=True), encoding="utf-8")
         return build_verification_gate([item], content_hash=content_hash)
 
-    def _observation_evidence(self, *, status: str) -> dict[str, object]:
+    def _observation_evidence(self, *, status: str) -> dict[str, Any]:
         gate = self._gate_evidence(
             content_hash=hashlib.sha256(RTL.encode()).hexdigest(),
             bundle_hash=hashlib.sha256(f"{status} observation bundle".encode()).hexdigest(),

@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any, cast
 
 from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import hash_bytes
@@ -25,8 +26,8 @@ class KnowledgePackTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.tempdir.cleanup()
 
-    def _source(self, *, license_status: LicenseStatus = LicenseStatus.KNOWN) -> dict[str, object]:
-        return self.db.add_record(
+    def _source(self, *, license_status: LicenseStatus = LicenseStatus.KNOWN) -> dict[str, Any]:
+        result = self.db.add_record(
             KnowledgeRecordInput(
                 namespace="project:source",
                 role=RecordRole.RTL_DESIGN,
@@ -41,11 +42,12 @@ class KnowledgePackTests(unittest.TestCase):
                 license_status=license_status,
             ),
             actor="test-suite",
-        )["record"]
+        )
+        return cast(dict[str, Any], result["record"])
 
     def test_derivation_is_candidate_provenanced_and_idempotent(self) -> None:
         source = self._source()
-        arguments = {
+        arguments: dict[str, Any] = {
             "namespace": "project:distilled",
             "role": RecordRole.DESIGN_PATTERN,
             "language": "markdown",
