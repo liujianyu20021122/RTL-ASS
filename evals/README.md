@@ -12,7 +12,7 @@ Validate the public manifest with:
 PYTHONPATH=src python3 evals/validate_cases.py evals/cases.json
 ```
 
-RTL-ASS 1.0 publishes the protocol but makes no general model-uplift claim. The post-release six-class workflow audit is published in
+RTL-ASS 1.1 publishes both this protocol and the reviewed six-class workflow audit, while making no general model-uplift claim. The audit is published in
 [`results/2026-09-01-codex-multitask-workflow-audit.md`](results/2026-09-01-codex-multitask-workflow-audit.md).
 
 ## Observable Codex workflow audit

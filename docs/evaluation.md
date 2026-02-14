@@ -6,7 +6,7 @@ RTL-ASS separates three questions that are often incorrectly collapsed.
 2. Candidate RTL evidence: lint, simulation, waveform, formal, equivalence, synthesis, and STA artifacts with exact identities.
 3. Model effectiveness: controlled Codex skill-off/skill-on trials using the same model, prompt, tool access, budget, seeds, and hidden acceptance tests.
 
-The 1.0 release establishes the first two and publishes the model-evaluation case manifest and protocol in `evals/`. Static keyword checks are not accepted as model evaluation. The post-1.0 six-class audit demonstrates that Codex actually loads the isolated skill and changes its verification behavior, while retaining the narrower conclusion that general RTL correctness uplift is not established.
+The 1.0 release established the first two and published the model-evaluation case manifest and protocol in `evals/`. The 1.1 release adds the reviewed six-class audit, which demonstrates that Codex actually loads the isolated skill and changes its verification behavior while retaining the narrower conclusion that general RTL correctness uplift is not established. Static keyword checks are not accepted as model evaluation.
 
 The public cases cover specification-to-RTL, repair, RTL/TB attribution, waveform localization, SystemVerilog semantics, and timing-aware refinement. Hidden answers must remain outside any retrieval namespace available to the evaluated run. Record failed and blocked runs, model/version, token and elapsed budgets, commands, tool versions, candidate hashes, and all hidden-test results.
 
@@ -20,4 +20,4 @@ An activation claim requires a successful exact read of `.agents/skills/rtl-ass/
 
 Infrastructure failures remain visible and do not enter the valid denominator. A timeout under the declared budget is a valid task failure, even if the partial candidate later passes the external grader; report task completion and partial-candidate correctness separately. Diagnosis correctness, deliverable completeness, and task success are also separate fields. Report paired raw outcomes, evidence completeness, elapsed time, and token cost.
 
-The reviewed six-class result is in [`../evals/results/2026-09-01-codex-multitask-workflow-audit.md`](../evals/results/2026-09-01-codex-multitask-workflow-audit.md). It validates the workflow mechanism but retains `effectiveness_status: not_evaluated` in the public 1.0 manifest for a general model-uplift claim.
+The reviewed six-class result is in [`../evals/results/2026-09-01-codex-multitask-workflow-audit.md`](../evals/results/2026-09-01-codex-multitask-workflow-audit.md). It validates the workflow mechanism but retains `effectiveness_status: not_evaluated` in the public case manifest for a general model-uplift claim.
