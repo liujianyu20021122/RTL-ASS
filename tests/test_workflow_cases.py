@@ -9,7 +9,8 @@ from pathlib import Path
 
 from evals.run_codex_ab import _prepare_workspace
 from evals.workflow_cases import CASES, get_case
-from rtl_ass.waveform import first_divergence_waveform
+from rtl_ass.integrity import hash_file
+from rtl_ass.waveform import first_divergence_waveform, query_waveform
 
 ROOT = Path(__file__).resolve().parents[1]
 OPEN_GRADER_TOOLS = all(shutil.which(tool) for tool in ("iverilog", "vvp", "verilator", "yosys"))
@@ -130,7 +131,7 @@ class WorkflowCaseTests(unittest.TestCase):
 
             grade = case.grade(workspace, root / "grade", initial)
 
-            self.assertTrue(grade["correct"])
+            self.assertTrue(grade["correct"], grade)
             self.assertEqual(grade["grader_statuses"]["equivalence"], "pass")
 
     @unittest.skipUnless(
@@ -197,8 +198,11 @@ class WorkflowCaseTests(unittest.TestCase):
             self.assertTrue(grade["complete"])
             self.assertEqual(grade["grader_statuses"]["saved_fst_divergence"], "pass")
 
-    @unittest.skipUnless(shutil.which("vcd2fst"), "GTKWave VCD-to-FST converter is unavailable")
-    def test_public_fst_reproduces_byte_for_byte_from_private_source_vcd(self) -> None:
+    @unittest.skipUnless(
+        shutil.which("vcd2fst") and shutil.which("fst2vcd"),
+        "GTKWave FST converters are unavailable",
+    )
+    def test_public_fst_is_hash_pinned_and_reproduces_source_semantics(self) -> None:
         source = (
             ROOT
             / "evals"
@@ -216,11 +220,48 @@ class WorkflowCaseTests(unittest.TestCase):
             / "trace"
             / "priority_divergence.fst"
         )
+        self.assertEqual(hash_file(expected), "c7df53e0361123cd071327a6f6e02e4360c546c7400a762ad31b8b1741ac8c32")
+
+        patterns = ["priority_monitor_tb.expected_o", "priority_monitor_tb.actual_o"]
+
+        def query_semantics(path: Path) -> dict[str, object]:
+            result = query_waveform(path, patterns=patterns, start_time=0, end_time=25, max_events=100)
+            return {
+                "status": result["status"],
+                "timescale": result["timescale"],
+                "window": result["window"],
+                "selected_signals": sorted(
+                    (signal["name"], signal["width"], signal["variable_type"]) for signal in result["selected_signals"]
+                ),
+                "events": sorted((event["time"], event["signal"], event["value"]) for event in result["events"]),
+            }
+
+        def divergence_semantics(path: Path) -> dict[str, object]:
+            result = first_divergence_waveform(
+                path,
+                expected=patterns[0],
+                actual=patterns[1],
+                start_time=0,
+                end_time=25,
+                max_events=100,
+            )
+            return {
+                "status": result["status"],
+                "timescale": result["timescale"],
+                "window": result["window"],
+                "first_divergence": result["first_divergence"],
+            }
+
+        source_query = query_semantics(source)
+        source_divergence = divergence_semantics(source)
         with tempfile.TemporaryDirectory() as temporary:
             generated = Path(temporary) / "priority_divergence.fst"
             subprocess.run(["vcd2fst", str(source), str(generated)], check=True, capture_output=True)
 
-            self.assertEqual(generated.read_bytes(), expected.read_bytes())
+            for fst in (expected, generated):
+                with self.subTest(fst=fst):
+                    self.assertEqual(query_semantics(fst), source_query)
+                    self.assertEqual(divergence_semantics(fst), source_divergence)
 
 
 if __name__ == "__main__":

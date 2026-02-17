@@ -288,6 +288,7 @@ def run_yosys_equivalence(
                 "equiv_make rtl_ass_gold rtl_ass_gate rtl_ass_equiv",
                 "hierarchy -check -top rtl_ass_equiv",
                 f"equiv_simple {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq {bundle.depth}",
+                f"equiv_induct {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq {bundle.depth}",
                 "equiv_status -assert",
                 "",
             ]

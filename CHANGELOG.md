@@ -18,6 +18,7 @@ All notable changes use semantic versioning.
 - Corrected the public FIFO manifest's stale minimum-evidence field to match the executed lint/simulation/synthesis protocol; supplemental formal outcomes remain separate and are never inferred as passing.
 - Removed transient bytecode and symlinks from evaluated runtime identity/copying, excluded infrastructure failures consistently from aggregate workflow metrics, and reran all six final campaigns with a clean-clone-stable payload hash.
 - Expanded strict static typing from the release subset to all repository Python modules under `src`, `tests`, `tools`, and `evals`.
+- Made sequential Yosys equivalence portable across the supported open-tool floor and replaced a converter-version-dependent FST byte comparison with separate container-integrity and decoded-semantic checks.
 
 Known boundaries: the reviewed corpus remains local and untrusted until explicitly verified; Yosys formal/equivalence evidence is bounded; OpenSTA is not physical signoff; the transparent five-pair-per-class Codex audit validates Skill activation and evidence behavior but does not establish universal correctness or efficiency uplift.
 
