@@ -3,18 +3,15 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Protocol, Sequence
+from typing import Any, Literal, Protocol, Sequence
 
+from rtl_ass.compile_manifest import CompileInput, CompileManifest, coerce_compile_manifest, validate_compile_identifier
 from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import hash_file, hash_json
-from rtl_ass.project import RTL_SUFFIXES
-
-_VERILOG_IDENTIFIER = re.compile(r"^[A-Za-z_]\w*$")
 
 
 class EvidenceBundle(Protocol):
@@ -30,55 +27,7 @@ class EvidenceBundle(Protocol):
     def inputs_unchanged(self) -> bool: ...
 
 
-@dataclass(frozen=True, slots=True)
-class SourceBundle:
-    sources: tuple[Path, ...]
-    display_paths: tuple[str, ...]
-    content_hashes: tuple[str, ...]
-    top: str
-
-    @classmethod
-    def create(cls, sources: Sequence[str | Path], top: str) -> "SourceBundle":
-        validate_verilog_identifier(top, "top")
-        display_paths = tuple(Path(source).as_posix() for source in sources)
-        resolved = tuple(Path(source).resolve() for source in sources)
-        if not resolved:
-            raise RtlAssError("sources_required", "at least one RTL source is required")
-        if len(set(resolved)) != len(resolved):
-            raise RtlAssError("duplicate_source", "source list contains duplicate paths")
-        invalid = [
-            str(source) for source in resolved if not source.is_file() or source.suffix.lower() not in RTL_SUFFIXES
-        ]
-        if invalid:
-            raise RtlAssError(
-                "invalid_source", "all sources must be existing Verilog/SystemVerilog files", {"paths": invalid}
-            )
-        content_hashes = tuple(hash_file(source) for source in resolved)
-        return cls(sources=resolved, display_paths=display_paths, content_hashes=content_hashes, top=top)
-
-    @property
-    def source_hashes(self) -> list[dict[str, Any]]:
-        return [
-            {"index": index, "path": display_path, "content_hash": content_hash}
-            for index, (display_path, content_hash) in enumerate(
-                zip(self.display_paths, self.content_hashes, strict=True)
-            )
-        ]
-
-    @property
-    def subject_hashes(self) -> list[dict[str, Any]]:
-        return self.source_hashes
-
-    @property
-    def input_hash(self) -> str:
-        identities = [{"index": item["index"], "content_hash": item["content_hash"]} for item in self.source_hashes]
-        return hash_json({"top": self.top, "sources": identities})
-
-    def inputs_unchanged(self) -> bool:
-        return all(
-            source.is_file() and hash_file(source) == expected
-            for source, expected in zip(self.sources, self.content_hashes, strict=True)
-        )
+SourceBundle = CompileManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,6 +97,121 @@ class StaInputBundle:
 
 
 @dataclass(frozen=True, slots=True)
+class SynthesisInputBundle:
+    source_bundle: SourceBundle
+    liberty: Path | None
+    liberty_display_path: str | None
+    liberty_content_hash: str | None
+
+    @classmethod
+    def create(
+        cls,
+        sources: CompileInput,
+        *,
+        top: str | None,
+        liberty: str | Path | None,
+    ) -> "SynthesisInputBundle":
+        source_bundle = coerce_compile_manifest(sources, top)
+        if liberty is None:
+            return cls(source_bundle, None, None, None)
+        provided = Path(liberty)
+        resolved = provided.resolve()
+        if provided.is_symlink() or not resolved.is_file() or resolved.suffix.lower() != ".lib":
+            raise RtlAssError(
+                "invalid_synthesis_liberty",
+                "mapped synthesis requires an existing non-symlink Liberty file",
+                {"path": provided.as_posix()},
+            )
+        return cls(source_bundle, resolved, provided.as_posix(), hash_file(resolved))
+
+    @property
+    def top(self) -> str:
+        return self.source_bundle.top
+
+    @property
+    def subject_hashes(self) -> list[dict[str, Any]]:
+        subjects = list(self.source_bundle.subject_hashes)
+        if self.liberty_display_path is not None and self.liberty_content_hash is not None:
+            subjects.append(
+                {
+                    "index": len(subjects),
+                    "path": self.liberty_display_path,
+                    "content_hash": self.liberty_content_hash,
+                }
+            )
+        return subjects
+
+    @property
+    def input_hash(self) -> str:
+        return hash_json(
+            {
+                "compile_input_hash": self.source_bundle.input_hash,
+                "mode": "liberty-mapped" if self.liberty is not None else "generic-structural",
+                "liberty_content_hash": self.liberty_content_hash,
+            }
+        )
+
+    def inputs_unchanged(self) -> bool:
+        return self.source_bundle.inputs_unchanged() and (
+            self.liberty is None
+            or (
+                self.liberty.is_file()
+                and not self.liberty.is_symlink()
+                and hash_file(self.liberty) == self.liberty_content_hash
+            )
+        )
+
+    def option_summary(self) -> dict[str, Any]:
+        return {
+            **self.source_bundle.option_summary(),
+            "synthesis_mode": "liberty-mapped" if self.liberty is not None else "generic-structural",
+            "liberty_file_count": int(self.liberty is not None),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class ToolVersionProbe:
+    """A bounded version probe whose diagnostic cannot masquerade as a version."""
+
+    version: str
+    status: Literal["pass", "failed", "timeout", "launch_failed", "empty_response"]
+    command: tuple[str, ...]
+    returncode: int | None = None
+    diagnostic: str | None = None
+
+    def summary(self) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "status": self.status,
+            "command": list(self.command),
+        }
+        if self.returncode is not None:
+            result["returncode"] = self.returncode
+        if self.diagnostic is not None:
+            result["diagnostic"] = self.diagnostic
+        return result
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecution:
+    """Normalized result of one bounded external-tool process."""
+
+    outcome: Literal["completed", "timeout", "launch_failed"]
+    returncode: int | None
+    stdout: str
+    stderr: str
+    error_type: str | None = None
+
+    def completed_returncode(self) -> int:
+        if self.outcome != "completed" or self.returncode is None:
+            raise RtlAssError(
+                "invalid_tool_execution",
+                "a non-completed tool execution has no return code",
+                {"outcome": self.outcome},
+            )
+        return self.returncode
+
+
+@dataclass(frozen=True, slots=True)
 class FormalInputBundle:
     source_bundle: SourceBundle
     depth: int
@@ -156,9 +220,9 @@ class FormalInputBundle:
     @classmethod
     def create(
         cls,
-        sources: Sequence[str | Path],
+        sources: CompileInput,
         *,
-        top: str,
+        top: str | None,
         depth: int,
         initialization: str,
     ) -> "FormalInputBundle":
@@ -169,11 +233,11 @@ class FormalInputBundle:
                 "formal initialization must be defined or zero",
                 {"initialization": initialization},
             )
-        return cls(SourceBundle.create(sources, top), depth, initialization)
+        return cls(coerce_compile_manifest(sources, top), depth, initialization)
 
     @property
     def sources(self) -> tuple[Path, ...]:
-        return self.source_bundle.sources
+        return self.source_bundle.compilation_units
 
     @property
     def top(self) -> str:
@@ -185,11 +249,9 @@ class FormalInputBundle:
 
     @property
     def input_hash(self) -> str:
-        identities = [{"index": item["index"], "content_hash": item["content_hash"]} for item in self.subject_hashes]
         return hash_json(
             {
-                "top": self.top,
-                "subjects": identities,
+                "compile_input_hash": self.source_bundle.input_hash,
                 "depth": self.depth,
                 "initialization": self.initialization,
             }
@@ -205,17 +267,19 @@ class EquivalenceInputBundle:
     implementation: SourceBundle
     depth: int
     input_domain: str
+    initialization: str
 
     @classmethod
     def create(
         cls,
-        reference_sources: Sequence[str | Path],
-        implementation_sources: Sequence[str | Path],
+        reference_sources: CompileInput,
+        implementation_sources: CompileInput,
         *,
-        reference_top: str,
-        implementation_top: str,
+        reference_top: str | None,
+        implementation_top: str | None,
         depth: int,
         input_domain: str = "defined",
+        initialization: str = "none",
     ) -> "EquivalenceInputBundle":
         validate_depth(depth)
         if input_domain not in {"defined", "undefined"}:
@@ -224,14 +288,25 @@ class EquivalenceInputBundle:
                 "equivalence input domain must be defined or undefined",
                 {"input_domain": input_domain},
             )
-        reference = SourceBundle.create(reference_sources, reference_top)
-        implementation = SourceBundle.create(implementation_sources, implementation_top)
+        allowed_initializations = {"none"} if depth == 1 else {"zero"}
+        if initialization not in allowed_initializations:
+            raise RtlAssError(
+                "invalid_equivalence_initialization",
+                (
+                    "combinational equivalence requires initialization=none"
+                    if depth == 1
+                    else "sequential equivalence requires the explicit zero-default initialization policy"
+                ),
+                {"depth": depth, "initialization": initialization},
+            )
+        reference = coerce_compile_manifest(reference_sources, reference_top)
+        implementation = coerce_compile_manifest(implementation_sources, implementation_top)
         if reference.input_hash == implementation.input_hash:
             raise RtlAssError(
                 "identical_equivalence_inputs",
                 "equivalence requires distinct reference and implementation identities",
             )
-        return cls(reference, implementation, depth, input_domain)
+        return cls(reference, implementation, depth, input_domain, initialization)
 
     @property
     def top(self) -> str:
@@ -253,23 +328,13 @@ class EquivalenceInputBundle:
 
     @property
     def input_hash(self) -> str:
-        identities: list[dict[str, Any]] = []
-        for role, bundle in (("reference", self.reference), ("implementation", self.implementation)):
-            for item in bundle.subject_hashes:
-                identities.append(
-                    {
-                        "index": len(identities),
-                        "role": role,
-                        "content_hash": item["content_hash"],
-                    }
-                )
         return hash_json(
             {
-                "reference_top": self.reference.top,
-                "implementation_top": self.implementation.top,
+                "reference_compile_input_hash": self.reference.input_hash,
+                "implementation_compile_input_hash": self.implementation.input_hash,
                 "depth": self.depth,
                 "input_domain": self.input_domain,
-                "subjects": identities,
+                "initialization": self.initialization,
             }
         )
 
@@ -278,27 +343,103 @@ class EquivalenceInputBundle:
 
 
 def validate_verilog_identifier(value: str, field: str) -> None:
-    if not isinstance(value, str) or not _VERILOG_IDENTIFIER.fullmatch(value):
-        raise RtlAssError("invalid_top", f"{field} must be a Verilog identifier", {"field": field, "value": value})
+    try:
+        validate_compile_identifier(value, field)
+    except RtlAssError as exc:
+        raise RtlAssError(
+            "invalid_top", f"{field} must be a Verilog identifier", {"field": field, "value": value}
+        ) from exc
 
 
-def tool_version(executable: str, arguments: list[str]) -> str:
+def tool_version(executable: str, arguments: list[str]) -> ToolVersionProbe:
+    command = (executable, *arguments)
+    result = run_tool_command(command, timeout_seconds=10, merge_stderr=True)
+    if result.outcome == "timeout":
+        return ToolVersionProbe(
+            version="unknown",
+            status="timeout",
+            command=command,
+            diagnostic=_bounded_diagnostic(result.stdout),
+        )
+    if result.outcome == "launch_failed":
+        return ToolVersionProbe(
+            version="unknown",
+            status="launch_failed",
+            command=command,
+            diagnostic=_bounded_diagnostic(result.stderr),
+        )
+    diagnostic = _bounded_diagnostic(result.stdout)
+    returncode = result.completed_returncode()
+    if returncode != 0:
+        return ToolVersionProbe(
+            version="unknown",
+            status="failed",
+            command=command,
+            returncode=returncode,
+            diagnostic=diagnostic,
+        )
+    if diagnostic is None:
+        return ToolVersionProbe(
+            version="unknown",
+            status="empty_response",
+            command=command,
+            returncode=returncode,
+        )
+    return ToolVersionProbe(
+        version=diagnostic,
+        status="pass",
+        command=command,
+        returncode=returncode,
+    )
+
+
+def run_tool_command(
+    command: Sequence[str],
+    *,
+    timeout_seconds: int,
+    cwd: str | Path | None = None,
+    merge_stderr: bool = False,
+) -> ToolExecution:
+    """Execute one discovered tool and preserve timeout/launch/exit attribution."""
+
     try:
         result = subprocess.run(
-            [executable, *arguments],
+            command,
             check=False,
+            cwd=cwd,
             stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
+            stderr=subprocess.STDOUT if merge_stderr else subprocess.PIPE,
             text=True,
-            timeout=10,
+            timeout=timeout_seconds,
         )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise RtlAssError(
-            "tool_version_failed",
-            "the discovered RTL tool did not provide a bounded version response",
-            {"tool": executable, "reason": str(exc)},
-        ) from exc
-    return result.stdout.strip().splitlines()[0] if result.stdout.strip() else "unknown"
+    except subprocess.TimeoutExpired as exc:
+        return ToolExecution(
+            outcome="timeout",
+            returncode=None,
+            stdout=timeout_text(exc.stdout),
+            stderr="" if merge_stderr else timeout_text(exc.stderr),
+        )
+    except OSError as exc:
+        return ToolExecution(
+            outcome="launch_failed",
+            returncode=None,
+            stdout="",
+            stderr=str(exc),
+            error_type=type(exc).__name__,
+        )
+    return ToolExecution(
+        outcome="completed",
+        returncode=result.returncode,
+        stdout=result.stdout,
+        stderr="" if merge_stderr else result.stderr,
+    )
+
+
+def _bounded_diagnostic(value: str | bytes | None) -> str | None:
+    text = timeout_text(value).strip()
+    if not text:
+        return None
+    return text.splitlines()[0][:512]
 
 
 def run_directory(root: str | Path, kind: str, tool: str) -> Path:
@@ -321,7 +462,7 @@ def base_evidence(
     kind: str,
     status: str,
     tool_name: str,
-    tool_version_value: str,
+    tool_version_value: str | ToolVersionProbe,
     bundle: EvidenceBundle,
     commands: list[list[str]],
     artifacts: list[str],
@@ -329,6 +470,11 @@ def base_evidence(
     finished_at: str,
     summary: dict[str, Any],
 ) -> dict[str, Any]:
+    if isinstance(tool_version_value, ToolVersionProbe):
+        version = tool_version_value.version
+        summary = {**summary, "tool_version_probe": tool_version_value.summary()}
+    else:
+        version = tool_version_value
     artifact_hashes = [
         {"index": index, "path": path, "content_hash": hash_file(path)} for index, path in enumerate(artifacts)
     ]
@@ -336,7 +482,7 @@ def base_evidence(
         "schema_version": "1.0",
         "kind": kind,
         "status": status,
-        "tool": {"name": tool_name, "version": tool_version_value},
+        "tool": {"name": tool_name, "version": version},
         "input_hash": bundle.input_hash,
         "subject_hashes": bundle.subject_hashes,
         "top": bundle.top,

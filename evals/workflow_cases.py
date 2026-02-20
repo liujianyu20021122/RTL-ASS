@@ -29,6 +29,7 @@ class WorkflowCase:
     prompt: str
     public_fixture: Path
     required_evidence: frozenset[str]
+    allowed_evidence: frozenset[str]
     grade: GradeFunction
 
 
@@ -286,6 +287,7 @@ def _signed_width_grade(workspace: Path, run_root: Path, initial: Mapping[str, s
         reference_top="sat_add_pipe_reference",
         implementation_top="sat_add_pipe",
         depth=4,
+        initialization="zero",
         artifact_root=evidence_root,
     )
     evidence = [lint, visible, hidden, synthesis, equivalence]
@@ -344,7 +346,12 @@ def _timing_grade(workspace: Path, run_root: Path, initial: Mapping[str, str]) -
     hidden = run_iverilog_simulation(
         [cells, rtl, hidden_tb], top="priority_select_hidden_tb", artifact_root=evidence_root / "hidden"
     )
-    synthesis = run_yosys_synthesis([cells, rtl], top="priority_select", artifact_root=evidence_root)
+    synthesis = run_yosys_synthesis(
+        [rtl],
+        top="priority_select",
+        liberty=liberty,
+        artifact_root=evidence_root,
+    )
     equivalence = run_yosys_equivalence(
         reference_sources=[cells, reference],
         implementation_sources=[cells, rtl],
@@ -353,13 +360,23 @@ def _timing_grade(workspace: Path, run_root: Path, initial: Mapping[str, str]) -
         depth=1,
         artifact_root=evidence_root,
     )
-    sta = run_opensta(
-        netlist=rtl,
-        liberty=liberty,
-        constraints=constraints,
-        top="priority_select",
-        artifact_root=evidence_root,
-    )
+    synthesized_netlists = [Path(path) for path in synthesis.get("artifacts", []) if Path(path).name == "netlist.v"]
+    if synthesis["status"] == "pass" and len(synthesized_netlists) == 1:
+        mapped_netlist_hash = hash_file(synthesized_netlists[0])
+        sta = run_opensta(
+            netlist=synthesized_netlists[0],
+            liberty=liberty,
+            constraints=constraints,
+            top="priority_select",
+            artifact_root=evidence_root,
+        )
+    else:
+        mapped_netlist_hash = None
+        sta = {
+            "kind": "sta",
+            "status": "not_evaluated",
+            "summary": {"reason": "mapped_synthesis_netlist_unavailable"},
+        }
     evidence = [lint, visible, hidden, synthesis, equivalence, sta]
     statuses = {
         "lint": lint["status"],
@@ -400,13 +417,9 @@ def _timing_grade(workspace: Path, run_root: Path, initial: Mapping[str, str]) -
                 hashes["lib/cells.v"],
                 hashes["tb/priority_select_visible_tb.sv"],
             ],
-            "synthesis": [hashes["rtl/priority_select.v"], hashes["lib/cells.v"]],
+            "synthesis": [hashes["rtl/priority_select.v"], hashes["lib/cells.lib"]],
             "equivalence": [hashes["rtl/priority_select.v"]],
-            "sta": [
-                hashes["rtl/priority_select.v"],
-                hashes["lib/cells.lib"],
-                hashes["constraints/priority_select.sdc"],
-            ],
+            "sta": [mapped_netlist_hash, hashes["lib/cells.lib"], hashes["constraints/priority_select.sdc"]],
         },
         "evidence": _evidence_view(evidence),
     }
@@ -426,10 +439,11 @@ def _saved_fst_divergence(workspace: Path, trace_hash: str) -> tuple[bool, dict[
         divergence = value.get("first_divergence")
         window = value.get("window")
         conversion = value.get("conversion")
-        tool = conversion.get("tool") if isinstance(conversion, dict) else None
-        if not isinstance(divergence, dict) or not isinstance(window, dict) or not isinstance(tool, dict):
+        if not isinstance(divergence, dict) or not isinstance(window, dict) or not isinstance(conversion, dict):
             continue
-        assert isinstance(conversion, dict)
+        tool = conversion.get("tool")
+        if not isinstance(tool, dict):
+            continue
         start = window.get("start")
         end = window.get("end")
         valid_window = (
@@ -540,6 +554,7 @@ In the final response, state the root cause, exact files changed, and executed e
 """,
         public_fixture=CASES_ROOT / "non_power_two_fifo" / "public",
         required_evidence=frozenset({"lint", "simulation", "synthesis"}),
+        allowed_evidence=frozenset({"lint", "simulation", "synthesis", "formal"}),
         grade=_fifo_grade,
     ),
     "spec-ready-valid-register": WorkflowCase(
@@ -551,6 +566,7 @@ In the final response, state the files created, verification evidence, and remai
 """,
         public_fixture=CASES_ROOT / "spec_ready_valid_register" / "public",
         required_evidence=frozenset({"lint", "simulation", "synthesis"}),
+        allowed_evidence=frozenset({"lint", "simulation", "synthesis", "formal"}),
         grade=_ready_valid_grade,
     ),
     "attribute-nba-scoreboard": WorkflowCase(
@@ -562,6 +578,7 @@ Run focused and regression verification. Do not add an arbitrary delay or weaken
 """,
         public_fixture=CASES_ROOT / "attribute_nba_scoreboard" / "public",
         required_evidence=frozenset({"simulation", "waveform"}),
+        allowed_evidence=frozenset({"lint", "simulation", "waveform"}),
         grade=_attribution_grade,
     ),
     "systemverilog-signed-width": WorkflowCase(
@@ -574,6 +591,7 @@ In the final response, state the root cause, exact file changed, evidence scopes
 """,
         public_fixture=CASES_ROOT / "systemverilog_signed_width" / "public",
         required_evidence=frozenset({"lint", "simulation", "equivalence"}),
+        allowed_evidence=frozenset({"lint", "simulation", "waveform", "synthesis", "formal", "equivalence"}),
         grade=_signed_width_grade,
     ),
     "timing-refine-priority-path": WorkflowCase(
@@ -585,6 +603,7 @@ Use only the supplied open-source inputs and tools. In the final response report
 """,
         public_fixture=CASES_ROOT / "timing_refine_priority_path" / "public",
         required_evidence=frozenset({"simulation", "equivalence", "synthesis", "sta"}),
+        allowed_evidence=frozenset({"lint", "simulation", "waveform", "synthesis", "formal", "equivalence", "sta"}),
         grade=_timing_grade,
     ),
     "waveform-first-divergence": WorkflowCase(
@@ -595,6 +614,7 @@ In the final response report the first divergence time and values, the causal so
 """,
         public_fixture=CASES_ROOT / "waveform_first_divergence" / "public",
         required_evidence=frozenset({"waveform"}),
+        allowed_evidence=frozenset({"waveform"}),
         grade=_waveform_divergence_grade,
     ),
 }

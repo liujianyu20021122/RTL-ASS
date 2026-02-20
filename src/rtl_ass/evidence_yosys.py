@@ -5,15 +5,21 @@ from __future__ import annotations
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
+from rtl_ass.compile_manifest import (
+    CompileInput,
+    yosys_parameter_commands,
+    yosys_read_command,
+)
 from rtl_ass.evidence_common import (
     EquivalenceInputBundle,
     FormalInputBundle,
-    SourceBundle,
+    SynthesisInputBundle,
     base_evidence,
     input_stable_status,
     run_directory,
+    run_tool_command,
     timeout_text,
     tool_version,
     unavailable_evidence,
@@ -25,17 +31,24 @@ from rtl_ass.integrity import parse_json, utc_now
 
 
 def run_yosys_synthesis(
-    sources: Sequence[str | Path],
+    sources: CompileInput,
     *,
-    top: str,
+    top: str | None = None,
+    liberty: str | Path | None = None,
     artifact_root: str | Path,
     timeout_seconds: int = 120,
 ) -> dict[str, Any]:
-    bundle = SourceBundle.create(sources, top)
+    bundle = SynthesisInputBundle.create(sources, top=top, liberty=liberty)
+    source_bundle = bundle.source_bundle
     validate_timeout(timeout_seconds)
     executable = shutil.which("yosys")
     if executable is None:
-        return unavailable_evidence(kind="synthesis", tool_name="yosys", bundle=bundle)
+        return unavailable_evidence(
+            kind="synthesis",
+            tool_name="yosys",
+            bundle=bundle,
+            summary=bundle.option_summary(),
+        )
     version = tool_version(executable, ["-V"])
 
     current_run = run_directory(artifact_root, "synthesis", "yosys")
@@ -43,22 +56,43 @@ def run_yosys_synthesis(
     log_path = current_run / "yosys.log"
     stats_path = current_run / "stats.json"
     netlist_path = current_run / "netlist.json"
-    read_commands = [f"read_verilog -sv {yosys_quote(source)}" for source in bundle.sources]
+    verilog_netlist_path = current_run / "netlist.v"
+    synthesis_commands = [f"synth -top {bundle.top} -noabc"]
+    if bundle.liberty is not None:
+        quoted_liberty = yosys_quote(bundle.liberty)
+        synthesis_commands.extend(
+            [
+                f"dfflibmap -liberty {quoted_liberty}",
+                # The bounded fast script uses ABC's stable classic mapper and
+                # avoids the substantially heavier default optimization chain.
+                f"abc -fast -liberty {quoted_liberty}",
+                "clean",
+            ]
+        )
+        stat_command = f"tee -o stats.json stat -liberty {quoted_liberty} -json"
+    else:
+        stat_command = "tee -o stats.json stat -json"
+    input_commands = [yosys_read_command(source_bundle)]
+    if bundle.liberty is not None:
+        # Import the timing library as black-box cell declarations before the
+        # design.  A Verilog simulation model for the same cells is not a
+        # synthesis input: Yosys would otherwise synthesize the cells' own
+        # behavioral bodies and recursively feed them back into ABC.
+        input_commands.insert(0, f"read_liberty -lib {yosys_quote(bundle.liberty)}")
     script = "\n".join(
         [
-            *read_commands,
+            *input_commands,
+            *yosys_parameter_commands(source_bundle),
             f"hierarchy -check -top {bundle.top}",
-            "proc",
-            "opt",
-            "check",
-            f"synth -top {bundle.top}",
+            *synthesis_commands,
             "check",
             # These are fixed filenames inside cwd.  Yosys 0.33's tee pass
             # cannot reliably create a quoted absolute output path, while
             # newer releases accept it.  Relative names are portable across
             # both versions and cannot be influenced by user input.
-            "tee -o stats.json stat -json",
+            stat_command,
             "write_json netlist.json",
+            "write_verilog -noattr -noexpr -nodec netlist.v",
             "",
         ]
     )
@@ -67,25 +101,20 @@ def run_yosys_synthesis(
     stderr_path = current_run / "stderr.log"
     command = [executable, "-q", "-l", str(log_path), "-s", str(script_path)]
     started_at = utc_now()
-    try:
-        result = subprocess.run(
-            command,
-            check=False,
-            cwd=current_run,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        status = "pass" if result.returncode == 0 else "fail"
-        stdout = result.stdout
-        stderr = result.stderr
-        summary: dict[str, Any] = {"returncode": result.returncode}
-    except subprocess.TimeoutExpired as exc:
+    result = run_tool_command(command, timeout_seconds=timeout_seconds, cwd=current_run)
+    summary: dict[str, Any] = {"compile_manifest": bundle.option_summary()}
+    if result.outcome == "timeout":
         status = "timeout"
-        stdout = timeout_text(exc.stdout)
-        stderr = timeout_text(exc.stderr)
-        summary = {"timeout_seconds": timeout_seconds}
+        summary["timeout_seconds"] = timeout_seconds
+    elif result.outcome == "launch_failed":
+        status = "blocked"
+        summary.update({"launch_failed": True, "launch_error": result.error_type})
+    else:
+        returncode = result.completed_returncode()
+        status = "pass" if returncode == 0 else "fail"
+        summary["returncode"] = returncode
+    stdout = result.stdout
+    stderr = result.stderr
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
 
@@ -94,7 +123,7 @@ def run_yosys_synthesis(
         summary["tool_error"] = _last_nonempty_line(combined)
 
     if status == "pass":
-        if not stats_path.is_file() or not netlist_path.is_file():
+        if not stats_path.is_file() or not netlist_path.is_file() or not verilog_netlist_path.is_file():
             status = "blocked"
             summary["missing_required_artifact"] = True
         else:
@@ -107,7 +136,7 @@ def run_yosys_synthesis(
                 summary["statistics"] = stats
     status, summary = input_stable_status(bundle, status, summary)
     artifacts = [script_path, log_path, stdout_path, stderr_path]
-    artifacts.extend(path for path in (stats_path, netlist_path) if path.is_file())
+    artifacts.extend(path for path in (stats_path, netlist_path, verilog_netlist_path) if path.is_file())
     evidence = base_evidence(
         kind="synthesis",
         status=status,
@@ -124,9 +153,9 @@ def run_yosys_synthesis(
 
 
 def run_yosys_formal(
-    sources: Sequence[str | Path],
+    sources: CompileInput,
     *,
-    top: str,
+    top: str | None = None,
     depth: int,
     initialization: str,
     artifact_root: str | Path,
@@ -158,14 +187,15 @@ def run_yosys_formal(
     script_path.write_text(
         "\n".join(
             [
-                *(f"read_verilog -formal -sv {yosys_quote(source)}" for source in bundle.sources),
+                yosys_read_command(bundle.source_bundle, formal=True),
+                *yosys_parameter_commands(bundle.source_bundle),
                 f"hierarchy -check -top {bundle.top}",
                 f"prep -top {bundle.top}",
                 "flatten",
                 "async2sync",
                 "dffunmap",
                 "opt_clean",
-                "select -assert-min 1 t:$assert",
+                "select -assert-min 1 t:$assert t:$check",
                 f"select -module {bundle.top}",
                 (
                     f"sat -verify -prove-asserts -set-assumes -set-def-inputs -enable_undef -seq {bundle.depth} "
@@ -197,6 +227,7 @@ def run_yosys_formal(
         "mode": "bounded",
         "assumptions_enforced": True,
         "defined_inputs": True,
+        "compile_manifest": bundle.source_bundle.option_summary(),
     }
     if timed_out:
         summary["timeout_seconds"] = timeout_seconds
@@ -224,14 +255,15 @@ def run_yosys_formal(
 
 def run_yosys_equivalence(
     *,
-    reference_sources: Sequence[str | Path],
-    implementation_sources: Sequence[str | Path],
-    reference_top: str,
-    implementation_top: str,
+    reference_sources: CompileInput,
+    implementation_sources: CompileInput,
+    reference_top: str | None = None,
+    implementation_top: str | None = None,
     depth: int,
     artifact_root: str | Path,
     timeout_seconds: int = 120,
     input_domain: str = "defined",
+    initialization: str = "none",
 ) -> dict[str, Any]:
     bundle = EquivalenceInputBundle.create(
         reference_sources,
@@ -240,6 +272,7 @@ def run_yosys_equivalence(
         implementation_top=implementation_top,
         depth=depth,
         input_domain=input_domain,
+        initialization=initialization,
     )
     validate_timeout(timeout_seconds)
     executable = shutil.which("yosys")
@@ -249,6 +282,10 @@ def run_yosys_equivalence(
         "depth": bundle.depth,
         "mode": "combinational" if depth == 1 else "bounded-sequential",
         "input_domain": bundle.input_domain,
+        "initialization": bundle.initialization,
+        "source_initial_values_preserved": bundle.depth > 1,
+        "reference_compile_manifest": bundle.reference.option_summary(),
+        "implementation_compile_manifest": bundle.implementation.option_summary(),
     }
     if executable is None:
         return unavailable_evidence(
@@ -263,38 +300,53 @@ def run_yosys_equivalence(
     log_path = current_run / "yosys.log"
     stdout_path = current_run / "stdout.log"
     stderr_path = current_run / "stderr.log"
-    script_path.write_text(
-        "\n".join(
-            [
-                *(f"read_verilog -sv {yosys_quote(source)}" for source in bundle.reference.sources),
-                f"hierarchy -check -top {bundle.reference.top}",
-                "proc",
-                "memory",
-                "opt",
-                "flatten",
-                "rename -top rtl_ass_gold",
-                "design -stash rtl_ass_reference",
-                "design -reset-vlog",
-                *(f"read_verilog -sv {yosys_quote(source)}" for source in bundle.implementation.sources),
-                f"hierarchy -check -top {bundle.implementation.top}",
-                "proc",
-                "memory",
-                "opt",
-                "flatten",
-                "rename -top rtl_ass_gate",
-                "design -stash rtl_ass_implementation",
-                "design -copy-from rtl_ass_reference rtl_ass_gold",
-                "design -copy-from rtl_ass_implementation rtl_ass_gate",
-                "equiv_make rtl_ass_gold rtl_ass_gate rtl_ass_equiv",
-                "hierarchy -check -top rtl_ass_equiv",
-                f"equiv_simple {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq {bundle.depth}",
-                f"equiv_induct {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq {bundle.depth}",
-                "equiv_status -assert",
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    preparation = [
+        yosys_read_command(bundle.reference),
+        *yosys_parameter_commands(bundle.reference),
+        f"hierarchy -check -top {bundle.reference.top}",
+        "proc",
+        "memory",
+        "opt",
+        "flatten",
+        "rename -top rtl_ass_gold",
+        "design -stash rtl_ass_reference",
+        "design -reset-vlog",
+        yosys_read_command(bundle.implementation),
+        *yosys_parameter_commands(bundle.implementation),
+        f"hierarchy -check -top {bundle.implementation.top}",
+        "proc",
+        "memory",
+        "opt",
+        "flatten",
+        "rename -top rtl_ass_gate",
+        "design -stash rtl_ass_implementation",
+        "design -copy-from rtl_ass_reference rtl_ass_gold",
+        "design -copy-from rtl_ass_implementation rtl_ass_gate",
+    ]
+    if bundle.depth == 1:
+        proof = [
+            "equiv_make rtl_ass_gold rtl_ass_gate rtl_ass_equiv",
+            "hierarchy -check -top rtl_ass_equiv",
+            f"equiv_simple {'-undef ' if bundle.input_domain == 'undefined' else ''}-seq 1",
+            "equiv_status -assert",
+        ]
+    else:
+        defined_inputs = "-set-def-inputs " if bundle.input_domain == "defined" else ""
+        proof = [
+            "equiv_make -make_assert rtl_ass_gold rtl_ass_gate rtl_ass_equiv",
+            "hierarchy -check -top rtl_ass_equiv",
+            "flatten",
+            "async2sync",
+            "dffunmap",
+            "opt_clean",
+            "select -assert-min 1 t:$assert t:$check",
+            "select -module rtl_ass_equiv",
+            (
+                f"sat -verify -prove-asserts {defined_inputs}-enable_undef -seq {bundle.depth} "
+                "-set-init-zero -show-ports"
+            ),
+        ]
+    script_path.write_text("\n".join([*preparation, *proof, ""]), encoding="utf-8")
     command = [executable, "-q", "-l", str(log_path), "-s", str(script_path)]
     started_at = utc_now()
     returncode, stdout, stderr, timed_out = _run_yosys(command, current_run, timeout_seconds)
@@ -305,7 +357,7 @@ def run_yosys_equivalence(
         status = "timeout"
     elif returncode == 0:
         status = "pass"
-    elif "unproven $equiv" in combined.lower():
+    elif "unproven $equiv" in combined.lower() or "proof did fail" in combined.lower():
         status = "fail"
     else:
         status = "blocked"

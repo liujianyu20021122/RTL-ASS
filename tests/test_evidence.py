@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,22 +9,189 @@ from unittest import mock
 
 from rtl_ass.errors import RtlAssError
 from rtl_ass.evidence import (
+    CompileManifest,
     EquivalenceInputBundle,
     FormalInputBundle,
     SourceBundle,
+    SynthesisInputBundle,
+    run_equivalence_evidence,
+    run_formal_evidence,
     run_iverilog_simulation,
     run_opensta,
+    run_simulation_evidence,
     run_verilator_lint,
+    run_verilator_simulation,
     run_yosys_equivalence,
     run_yosys_formal,
     run_yosys_synthesis,
 )
+from rtl_ass.evidence_common import ToolExecution, ToolVersionProbe, run_tool_command, tool_version
 
 FIXTURES = Path(__file__).parent / "fixtures"
 STA_FIXTURES = Path(__file__).parent / "sta_fixtures"
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_failed_version_probe_keeps_diagnostic_out_of_tool_version(self) -> None:
+        completed = subprocess.CompletedProcess(
+            args=["/tools/iverilog", "-V"],
+            returncode=1,
+            stdout="Unable to create temporary file /tmp/ivrlg.test\n",
+            stderr=None,
+        )
+        with mock.patch("rtl_ass.evidence_common.subprocess.run", return_value=completed):
+            probe = tool_version("/tools/iverilog", ["-V"])
+
+        self.assertEqual(probe.version, "unknown")
+        self.assertEqual(probe.status, "failed")
+        self.assertEqual(probe.returncode, 1)
+        self.assertEqual(probe.diagnostic, "Unable to create temporary file /tmp/ivrlg.test")
+
+    def test_tool_execution_normalizes_timeout_and_launch_failure(self) -> None:
+        timeout = subprocess.TimeoutExpired(
+            cmd=["/tools/iverilog"],
+            timeout=1,
+            output=b"partial output",
+            stderr=b"partial error",
+        )
+        with mock.patch("rtl_ass.evidence_common.subprocess.run", side_effect=timeout):
+            timed_out = run_tool_command(["/tools/iverilog"], timeout_seconds=1)
+        self.assertEqual(timed_out.outcome, "timeout")
+        self.assertEqual(timed_out.stdout, "partial output")
+        self.assertEqual(timed_out.stderr, "partial error")
+        self.assertIsNone(timed_out.returncode)
+
+        with mock.patch("rtl_ass.evidence_common.subprocess.run", side_effect=PermissionError("denied")):
+            launch_failed = run_tool_command(["/tools/iverilog"], timeout_seconds=1)
+        self.assertEqual(launch_failed.outcome, "launch_failed")
+        self.assertEqual(launch_failed.error_type, "PermissionError")
+        self.assertEqual(launch_failed.stderr, "denied")
+        self.assertIsNone(launch_failed.returncode)
+
+    def test_simulation_compile_failures_are_not_tool_discovery_failures(self) -> None:
+        version = ToolVersionProbe(
+            version="test-version",
+            status="pass",
+            command=("/tools/compiler", "--version"),
+            returncode=0,
+        )
+        compile_failure = ToolExecution(
+            outcome="completed",
+            returncode=1,
+            stdout="",
+            stderr="compile rejected\n",
+        )
+        cases = (
+            ("iverilog", run_iverilog_simulation),
+            ("verilator", run_verilator_simulation),
+        )
+        for backend, runner in cases:
+            with self.subTest(backend=backend), tempfile.TemporaryDirectory() as directory:
+                with (
+                    mock.patch("rtl_ass.evidence_sim.shutil.which", side_effect=lambda name: f"/tools/{name}"),
+                    mock.patch("rtl_ass.evidence_sim.tool_version", return_value=version),
+                    mock.patch("rtl_ass.evidence_sim.run_tool_command", return_value=compile_failure),
+                ):
+                    evidence = runner(
+                        [FIXTURES / "counter.sv"],
+                        top="counter",
+                        artifact_root=directory,
+                    )
+
+            self.assertEqual(evidence["status"], "fail")
+            self.assertEqual(evidence["summary"]["phase"], "compile")
+            self.assertEqual(evidence["summary"]["compile_returncode"], 1)
+            self.assertNotIn("missing_executable", evidence["summary"])
+            self.assertNotIn("missing_compiled_artifact", evidence["summary"])
+            self.assertEqual(evidence["summary"]["tool_version_probe"]["status"], "pass")
+
+    def test_simulation_compile_boundary_distinguishes_discovery_launch_and_output(self) -> None:
+        version = ToolVersionProbe(
+            version="test-version",
+            status="pass",
+            command=("/tools/iverilog", "-V"),
+            returncode=0,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch("rtl_ass.evidence_sim.shutil.which", return_value=None):
+                unavailable = run_iverilog_simulation([FIXTURES / "counter.sv"], top="counter", artifact_root=directory)
+        self.assertEqual(unavailable["status"], "not_available")
+        self.assertEqual(unavailable["claim_scope"], "tool discovery only")
+
+        compile_success = ToolExecution(
+            outcome="completed",
+            returncode=0,
+            stdout="",
+            stderr="",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch("rtl_ass.evidence_sim.shutil.which", side_effect=lambda name: f"/tools/{name}"),
+                mock.patch("rtl_ass.evidence_sim.tool_version", return_value=version),
+                mock.patch("rtl_ass.evidence_sim.run_tool_command", return_value=compile_success),
+            ):
+                missing_output = run_iverilog_simulation(
+                    [FIXTURES / "counter.sv"], top="counter", artifact_root=directory
+                )
+        self.assertEqual(missing_output["status"], "blocked")
+        self.assertTrue(missing_output["summary"]["missing_compiled_artifact"])
+        self.assertNotIn("missing_executable", missing_output["summary"])
+
+        with tempfile.TemporaryDirectory() as directory:
+            with (
+                mock.patch("rtl_ass.evidence_sim.shutil.which", side_effect=lambda name: f"/tools/{name}"),
+                mock.patch("rtl_ass.evidence_sim.tool_version", return_value=version),
+                mock.patch(
+                    "rtl_ass.evidence_sim.run_tool_command",
+                    return_value=ToolExecution(
+                        outcome="launch_failed",
+                        returncode=None,
+                        stdout="",
+                        stderr="disappeared",
+                        error_type="FileNotFoundError",
+                    ),
+                ),
+            ):
+                launch_failure = run_iverilog_simulation(
+                    [FIXTURES / "counter.sv"], top="counter", artifact_root=directory
+                )
+        self.assertEqual(launch_failure["status"], "blocked")
+        self.assertTrue(launch_failure["summary"]["launch_failed"])
+        self.assertEqual(launch_failure["summary"]["launch_error"], "FileNotFoundError")
+        self.assertNotIn("compile_returncode", launch_failure["summary"])
+
+    def test_stable_dispatch_boundary_rejects_unknown_backends(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(RtlAssError) as simulation:
+                run_simulation_evidence(
+                    [FIXTURES / "counter.sv"],
+                    top="counter",
+                    backend="unknown",
+                    artifact_root=directory,
+                )
+            with self.assertRaises(RtlAssError) as formal:
+                run_formal_evidence(
+                    [FIXTURES / "formal_pass.sv"],
+                    top="formal_pass",
+                    backend="unknown",
+                    depth=2,
+                    initialization="defined",
+                    artifact_root=directory,
+                )
+            with self.assertRaises(RtlAssError) as equivalence:
+                run_equivalence_evidence(
+                    reference_sources=[FIXTURES / "equiv_reference.sv"],
+                    implementation_sources=[FIXTURES / "equiv_implementation.sv"],
+                    reference_top="equiv_reference",
+                    implementation_top="equiv_implementation",
+                    backend="unknown",
+                    depth=1,
+                    artifact_root=directory,
+                )
+        self.assertEqual(simulation.exception.code, "unsupported_evidence_backend")
+        self.assertEqual(formal.exception.code, "unsupported_evidence_backend")
+        self.assertEqual(equivalence.exception.code, "unsupported_evidence_backend")
+
     def test_source_bundle_hash_is_ordered_and_content_bound(self) -> None:
         design = FIXTURES / "counter.sv"
         testbench = FIXTURES / "counter_tb.sv"
@@ -33,6 +201,74 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(first.source_hashes[0]["path"], design.as_posix())
         self.assertEqual(first.source_hashes[0]["index"], 0)
 
+    @unittest.skipUnless(
+        shutil.which("iverilog") and shutil.which("vvp") and shutil.which("verilator") and shutil.which("yosys"),
+        "Icarus Verilog, Verilator, or Yosys is unavailable",
+    )
+    def test_compile_manifest_options_are_consumed_by_all_primary_frontends(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            include = root / "include"
+            include.mkdir()
+            (include / "defs.svh").write_text("`define APPLY_INVERT(value) (~(value))\n", encoding="utf-8")
+            design = root / "invert.sv"
+            design.write_text(
+                '`include "defs.svh"\n'
+                "module invert #(parameter WIDTH=1) (input logic [WIDTH-1:0] a, output logic [WIDTH-1:0] y);\n"
+                "  assign y = `APPLY_INVERT(a);\n"
+                "endmodule\n",
+                encoding="utf-8",
+            )
+            testbench = root / "top_tb.sv"
+            testbench.write_text(
+                "module top_tb #(parameter WIDTH=1);\n"
+                "  logic [WIDTH-1:0] a, y;\n"
+                "  invert #(.WIDTH(WIDTH)) dut(.a(a), .y(y));\n"
+                "  initial begin a = '0; #1; if (y !== {WIDTH{1'b1}}) $fatal(1); $finish; end\n"
+                "endmodule\n",
+                encoding="utf-8",
+            )
+            results = []
+            for width in (1, 2, 7, 31, 64):
+                simulation_manifest = CompileManifest.create(
+                    [testbench],
+                    "top_tb",
+                    library_files=[design],
+                    include_dirs=[include],
+                    defines=["FEATURE"],
+                    parameters=[f"WIDTH={width}"],
+                )
+                iverilog = run_iverilog_simulation(
+                    simulation_manifest,
+                    artifact_root=root / "artifacts" / str(width) / "iverilog",
+                )
+                verilator = run_verilator_simulation(
+                    simulation_manifest,
+                    artifact_root=root / "artifacts" / str(width) / "verilator",
+                )
+                synthesis_manifest = CompileManifest.create(
+                    [design],
+                    "invert",
+                    include_dirs=[include],
+                    defines=["FEATURE"],
+                    parameters=[f"WIDTH={width}"],
+                )
+                synthesis = run_yosys_synthesis(
+                    synthesis_manifest,
+                    artifact_root=root / "artifacts" / str(width) / "yosys",
+                )
+                results.append((width, iverilog, verilator, synthesis))
+
+        for width, iverilog, verilator, synthesis in results:
+            with self.subTest(width=width):
+                self.assertEqual(iverilog["status"], "pass", iverilog["summary"])
+                self.assertEqual(verilator["status"], "pass", verilator["summary"])
+                self.assertEqual(synthesis["status"], "pass", synthesis["summary"])
+                self.assertIn(f"-Ptop_tb.WIDTH={width}", iverilog["commands"][0])
+                self.assertIn(f"-GWIDTH={width}", verilator["commands"][0])
+                self.assertEqual(iverilog["input_hash"], verilator["input_hash"])
+                self.assertEqual(len(iverilog["subject_hashes"]), 3)
+
     def test_formal_and_equivalence_hashes_bind_proof_parameters_and_roles(self) -> None:
         formal_short = FormalInputBundle.create(
             [FIXTURES / "formal_pass.sv"], top="formal_pass", depth=4, initialization="defined"
@@ -40,7 +276,18 @@ class EvidenceTests(unittest.TestCase):
         formal_deep = FormalInputBundle.create(
             [FIXTURES / "formal_pass.sv"], top="formal_pass", depth=5, initialization="defined"
         )
+        formal_parameterized = FormalInputBundle.create(
+            CompileManifest.create(
+                [FIXTURES / "formal_pass.sv"],
+                "formal_pass",
+                defines=["FORMAL_MODE"],
+            ),
+            top=None,
+            depth=4,
+            initialization="defined",
+        )
         self.assertNotEqual(formal_short.input_hash, formal_deep.input_hash)
+        self.assertNotEqual(formal_short.input_hash, formal_parameterized.input_hash)
         forward = EquivalenceInputBundle.create(
             [FIXTURES / "equiv_reference.sv"],
             [FIXTURES / "equiv_implementation.sv"],
@@ -63,9 +310,58 @@ class EvidenceTests(unittest.TestCase):
             depth=1,
             input_domain="undefined",
         )
+        parameterized = EquivalenceInputBundle.create(
+            CompileManifest.create([FIXTURES / "equiv_reference.sv"], "equiv_reference", defines=["MODE=1"]),
+            CompileManifest.create([FIXTURES / "equiv_implementation.sv"], "equiv_implementation", defines=["MODE=1"]),
+            reference_top=None,
+            implementation_top=None,
+            depth=1,
+        )
         self.assertNotEqual(forward.input_hash, reverse.input_hash)
         self.assertNotEqual(forward.input_hash, undefined.input_hash)
+        self.assertNotEqual(forward.input_hash, parameterized.input_hash)
         self.assertEqual([item["index"] for item in forward.subject_hashes], [0, 1])
+
+        with self.assertRaises(RtlAssError) as caught:
+            EquivalenceInputBundle.create(
+                [FIXTURES / "equiv_sequential_reference.sv"],
+                [FIXTURES / "equiv_sequential_implementation.sv"],
+                reference_top="equiv_sequential_reference",
+                implementation_top="equiv_sequential_implementation",
+                depth=4,
+            )
+        self.assertEqual(caught.exception.code, "invalid_equivalence_initialization")
+        sequential_zero = EquivalenceInputBundle.create(
+            [FIXTURES / "equiv_sequential_reference.sv"],
+            [FIXTURES / "equiv_sequential_implementation.sv"],
+            reference_top="equiv_sequential_reference",
+            implementation_top="equiv_sequential_implementation",
+            depth=4,
+            initialization="zero",
+        )
+        self.assertEqual(sequential_zero.initialization, "zero")
+
+    def test_synthesis_bundle_binds_liberty_and_rejects_unsafe_inputs(self) -> None:
+        generic = SynthesisInputBundle.create([FIXTURES / "mapped_logic.sv"], top="mapped_logic", liberty=None)
+        mapped = SynthesisInputBundle.create(
+            [FIXTURES / "mapped_logic.sv"],
+            top="mapped_logic",
+            liberty=FIXTURES / "mapped_cells.lib",
+        )
+        self.assertNotEqual(generic.input_hash, mapped.input_hash)
+        self.assertEqual(mapped.subject_hashes[-1]["path"], (FIXTURES / "mapped_cells.lib").as_posix())
+        self.assertEqual(mapped.option_summary()["synthesis_mode"], "liberty-mapped")
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            wrong_suffix = root / "cells.txt"
+            wrong_suffix.write_text("library(test) {}\n", encoding="utf-8")
+            symlink = root / "cells.lib"
+            symlink.symlink_to(FIXTURES / "mapped_cells.lib")
+            for invalid in (wrong_suffix, symlink):
+                with self.subTest(path=invalid), self.assertRaises(RtlAssError) as caught:
+                    SynthesisInputBundle.create([FIXTURES / "mapped_logic.sv"], top="mapped_logic", liberty=invalid)
+                self.assertEqual(caught.exception.code, "invalid_synthesis_liberty")
 
     def test_formal_rejects_unbounded_or_boolean_depth(self) -> None:
         for depth in (0, 1001, True):
@@ -133,6 +429,29 @@ class EvidenceTests(unittest.TestCase):
             script = script_path.read_text(encoding="utf-8")
             self.assertIn("tee -o stats.json stat -json", script)
             self.assertIn("write_json netlist.json", script)
+            self.assertIn("synth -top counter -noabc", script)
+            self.assertNotIn("abc -liberty", script)
+
+    @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
+    def test_yosys_mapped_synthesis_emits_liberty_bound_verilog_netlist(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = run_yosys_synthesis(
+                [FIXTURES / "mapped_logic.sv"],
+                top="mapped_logic",
+                liberty=FIXTURES / "mapped_cells.lib",
+                artifact_root=directory,
+            )
+
+            self.assertEqual(evidence["status"], "pass", evidence["summary"])
+            self.assertEqual(evidence["summary"]["compile_manifest"]["synthesis_mode"], "liberty-mapped")
+            self.assertEqual(len(evidence["subject_hashes"]), 2)
+            artifacts = {Path(path).name: Path(path) for path in evidence["artifacts"]}
+            self.assertIn("netlist.v", artifacts)
+            script = artifacts["synthesis.ys"].read_text(encoding="utf-8")
+            self.assertLess(script.index("read_liberty -lib"), script.index("read_verilog"))
+            self.assertIn("abc -fast -liberty", script)
+            netlist = artifacts["netlist.v"].read_text(encoding="utf-8")
+            self.assertIn("NAND2_X1", netlist)
 
     @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
     def test_yosys_formal_distinguishes_proof_and_counterexample(self) -> None:
@@ -252,12 +571,71 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(undefined["status"], "pass", undefined["summary"])
         self.assertEqual(undefined["summary"]["input_domain"], "undefined")
         self.assertIn("equiv_simple -undef", undefined_script)
-        self.assertIn("equiv_induct -undef", undefined_script)
+        self.assertNotIn("equiv_induct", undefined_script)
         self.assertEqual(mismatch["status"], "fail", mismatch["summary"])
         self.assertFalse(mismatch["summary"]["equivalent"])
         self.assertEqual(len(equivalent["subject_hashes"]), 2)
         self.assertEqual(blocked["status"], "blocked", blocked["summary"])
         self.assertIsNone(blocked["summary"]["equivalent"])
+
+    @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
+    def test_yosys_sequential_equivalence_requires_and_executes_initialization_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            equivalent = run_yosys_equivalence(
+                reference_sources=[FIXTURES / "equiv_sequential_reference.sv"],
+                implementation_sources=[FIXTURES / "equiv_sequential_implementation.sv"],
+                reference_top="equiv_sequential_reference",
+                implementation_top="equiv_sequential_implementation",
+                depth=4,
+                initialization="zero",
+                artifact_root=directory,
+            )
+            mismatch = run_yosys_equivalence(
+                reference_sources=[FIXTURES / "equiv_sequential_reference.sv"],
+                implementation_sources=[FIXTURES / "equiv_sequential_mismatch.sv"],
+                reference_top="equiv_sequential_reference",
+                implementation_top="equiv_sequential_mismatch",
+                depth=4,
+                initialization="zero",
+                artifact_root=directory,
+            )
+            script = next(
+                Path(path) for path in equivalent["artifacts"] if Path(path).name == "equivalence.ys"
+            ).read_text(encoding="utf-8")
+        self.assertEqual(equivalent["status"], "pass", equivalent["summary"])
+        self.assertTrue(equivalent["summary"]["equivalent"])
+        self.assertEqual(equivalent["summary"]["initialization"], "zero")
+        self.assertIn("sat -verify -prove-asserts", script)
+        self.assertIn("-set-init-zero", script)
+        self.assertNotIn("equiv_induct", script)
+        self.assertEqual(mismatch["status"], "fail", mismatch["summary"])
+        self.assertFalse(mismatch["summary"]["equivalent"])
+
+    @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
+    def test_yosys_sequential_equivalence_does_not_ignore_source_initial_state_mismatch(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(RtlAssError) as caught:
+                run_yosys_equivalence(
+                    reference_sources=[FIXTURES / "equiv_initial_zero.sv"],
+                    implementation_sources=[FIXTURES / "equiv_initial_one.sv"],
+                    reference_top="equiv_initial_zero",
+                    implementation_top="equiv_initial_one",
+                    depth=4,
+                    artifact_root=directory,
+                )
+            mismatch = run_yosys_equivalence(
+                reference_sources=[FIXTURES / "equiv_initial_zero.sv"],
+                implementation_sources=[FIXTURES / "equiv_initial_one.sv"],
+                reference_top="equiv_initial_zero",
+                implementation_top="equiv_initial_one",
+                depth=4,
+                initialization="zero",
+                artifact_root=directory,
+            )
+        self.assertEqual(caught.exception.code, "invalid_equivalence_initialization")
+        self.assertEqual(mismatch["status"], "fail", mismatch["summary"])
+        self.assertFalse(mismatch["summary"]["equivalent"])
+        self.assertTrue(mismatch["summary"]["source_initial_values_preserved"])
 
     @unittest.skipUnless(shutil.which("sta") or shutil.which("opensta"), "OpenSTA is unavailable")
     def test_opensta_emits_timing_metrics_from_complete_inputs(self) -> None:
@@ -337,6 +715,38 @@ class EvidenceTests(unittest.TestCase):
             )
         self.assertEqual(evidence["status"], "blocked")
         self.assertEqual(evidence["summary"]["clock_count"], 0)
+
+    def test_opensta_launch_failure_is_blocked_not_a_timing_failure(self) -> None:
+        launch_failure = ToolExecution(
+            outcome="launch_failed",
+            returncode=None,
+            stdout="",
+            stderr="permission denied",
+            error_type="PermissionError",
+        )
+        version = ToolVersionProbe(
+            version="test-version",
+            status="pass",
+            command=("/tools/sta", "-version"),
+            returncode=0,
+        )
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch("rtl_ass.evidence_sta.shutil.which", return_value="/tools/sta"),
+            mock.patch("rtl_ass.evidence_sta.tool_version", return_value=version),
+            mock.patch("rtl_ass.evidence_sta.run_tool_command", return_value=launch_failure),
+        ):
+            evidence = run_opensta(
+                netlist=STA_FIXTURES / "sta_netlist.v",
+                liberty=STA_FIXTURES / "sta.lib",
+                constraints=STA_FIXTURES / "sta.sdc",
+                top="sta_top",
+                artifact_root=directory,
+            )
+
+        self.assertEqual(evidence["status"], "blocked")
+        self.assertTrue(evidence["summary"]["launch_failed"])
+        self.assertNotIn("returncode", evidence["summary"])
 
     @unittest.skipUnless(shutil.which("sta") or shutil.which("opensta"), "OpenSTA is unavailable")
     def test_opensta_blocks_unconstrained_endpoints(self) -> None:

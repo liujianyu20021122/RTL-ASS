@@ -18,7 +18,7 @@ This is tamper-evident, not tamper-proof. A database owner can replace the entir
 
 ## Evidence identity
 
-Tool evidence captures ordered source hashes before execution and checks them again after execution. It also hashes every raw log, executable, report, script, statistic, and netlist artifact listed by the adapter. If an input changes during the run, status becomes `blocked`. At knowledge verification time, artifact hashes and the original run-evidence JSON are checked twice around evidence-record insertion. Multi-file evidence has one bundle hash plus per-subject hashes; the gate requires the candidate's exact content hash among those subjects.
+Tool evidence captures one CompileManifest identity covering language, ordered sources, libraries, include-tree names/content, defines, parameters, and top before execution and checks it again after execution. It also hashes every raw log, executable, report, script, statistic, netlist, and counterexample artifact listed by the adapter. If an input changes during the run, status becomes `blocked`. At knowledge verification time, artifact hashes and the original run-evidence JSON are checked twice around evidence-record insertion. Multi-file evidence has one bundle hash plus per-subject hashes; the gate requires the candidate's exact content hash among those subjects.
 
 Non-passing observation uses the same artifact and run-evidence rechecks. Its attribution is stored on the relationship, not inside objective tool evidence. Identical retries are no-ops; attempting to re-attribute the same evidence/target pair differently is rejected rather than creating contradictory learning edges.
 

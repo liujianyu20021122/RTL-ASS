@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/compile-manifest.schema.json",
+  "title": "RTL-ASS Compile Manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "top", "language", "sources", "library_files", "include_dirs", "defines", "parameters"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "top": {"$ref": "#/$defs/identifier"},
+    "language": {"enum": ["systemverilog", "verilog-2005"]},
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/path"}
+    },
+    "library_files": {
+      "type": "array",
+      "maxItems": 4096,
+      "items": {"$ref": "#/$defs/path"}
+    },
+    "include_dirs": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {"$ref": "#/$defs/path"}
+    },
+    "defines": {
+      "type": "object",
+      "maxProperties": 4096,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {
+        "oneOf": [{"type": "string", "pattern": "^[A-Za-z0-9_.$'+*/%<>=!&|^~?:,()\\-]+$"}, {"type": "null"}]
+      }
+    },
+    "parameters": {
+      "type": "object",
+      "maxProperties": 4096,
+      "propertyNames": {"$ref": "#/$defs/identifier"},
+      "additionalProperties": {"type": "string", "pattern": "^[A-Za-z0-9_.$'+*/%<>=!&|^~?:,()\\-]+$"}
+    }
+  },
+  "$defs": {
+    "identifier": {"type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"},
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096,
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*[\\\\\\u0000\\r\\n]).+$"
+    }
+  }
+}

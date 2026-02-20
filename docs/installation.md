@@ -4,7 +4,7 @@
 
 - Python 3.11 or 3.12.
 - Codex for the skill workflow.
-- Only the open-source tools needed by the requested evidence: Verilator, Icarus Verilog, Yosys, OpenSTA, and GTKWave's `fst2vcd` are independently optional.
+- Only the open-source tools needed by the requested evidence: Verilator, Icarus Verilog, Yosys, SymbiYosys plus an open SMT solver, EQY, OpenSTA, and GTKWave's `fst2vcd` are independently optional. EQY plugins must be built for the exact Yosys installation that loads them.
 
 ## Install the helper
 
@@ -12,7 +12,7 @@ From a release download:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install --no-deps rtl_ass-1.1.0-py3-none-any.whl
+.venv/bin/pip install --no-deps rtl_ass-1.2.0-py3-none-any.whl
 .venv/bin/rtl-ass --version
 .venv/bin/rtl-ass doctor
 ```
@@ -26,7 +26,7 @@ rtl-ass --version
 
 ## Install the Codex skill
 
-Extract `rtl-ass-skill-1.1.0.zip`. Copy the archive's `rtl-ass` directory into the configured Codex skills directory, preserving `SKILL.md`, `agents/`, `references/`, and `scripts/`. Keep the helper wheel installed so a standalone skill archive can call `rtl-ass`.
+Extract `rtl-ass-skill-1.2.0.zip`. Copy the archive's complete `rtl-ass` directory into the configured Codex skills directory, preserving `SKILL.md`, `agents/`, `references/`, `scripts/`, and `runtime/`. The release Skill contains a hash-verified pure-Python wheel and does not require a separate helper installation.
 
 For repository development, Codex can use `.agents/skills/rtl-ass/` directly and its launcher imports `src/rtl_ass` from the checkout.
 
@@ -34,7 +34,7 @@ For repository development, Codex can use `.agents/skills/rtl-ass/` directly and
 
 ```bash
 (cd path/to/downloaded/assets && sha256sum --check SHA256SUMS)
-python3 -m pip install --no-deps rtl_ass-1.1.0-py3-none-any.whl
+python3 -m pip install --no-deps rtl_ass-1.2.0-py3-none-any.whl
 rtl-ass --version
 ```
 

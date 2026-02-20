@@ -4,6 +4,19 @@ All notable changes use semantic versioning.
 
 ## Unreleased
 
+## 1.2.0 — 2026-09-01
+
+- Added a strict CompileManifest schema and runtime contract shared by lint, Icarus/Verilator simulation, Yosys synthesis/formal/equivalence, SymbiYosys, and EQY; language, libraries, includes, defines, parameters, top, and exact input identities no longer diverge between adapters.
+- Added native Verilator binary simulation, SymbiYosys bounded assertion, and EQY equivalence adapters with one stable backend-dispatch API and CLI selection.
+- Require real driver status markers and counterexample traces before classifying negative formal/equivalence evidence; ambiguous, missing, tool-error, or unproved outputs remain blocked.
+- Added matching source-pinned Yosys/SBY/EQY v0.68 CI with a hash-pinned Z3 wheel and positive/negative no-skip integration tests.
+- Made the release Skill self-contained by embedding and verifying the exact pure-Python wheel; isolated extraction tests no longer rely on a separately installed package.
+- Replaced weak sequential-equivalence convergence claims with bounded miter/SAT evidence that preserves source initial values, zero-defaults unspecified state, and hashes that explicit policy.
+- Made Codex workflow evidence reuse the central artifact/subject validator, reject escaped or forged evidence, and recognize Skill activation only from parsed read/helper commands.
+- Kill and reap complete Codex process groups on evaluation timeout.
+- Added a mandatory pinned OpenSTA CI gate and reject malformed wheel/sdist inputs before producing release assets.
+- Require GitHub releases to reuse the exact successful tag-CI artifact rather than a second local build.
+
 ## 1.1.0 — 2026-09-01
 
 - Added an explicit 21-source corpus admission policy and a reproducible file-level lock for 1,429 reviewed Verilog/SystemVerilog files across seven quarantined namespaces.

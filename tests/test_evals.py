@@ -56,22 +56,23 @@ class EvaluationManifestTests(unittest.TestCase):
             self.assertEqual(len(digest), 64)
             int(digest, 16)
 
-    def test_multitask_summary_preserves_audited_payload_and_current_inputs(self) -> None:
+    def test_multitask_summary_preserves_historical_payload_and_unchanged_case_inputs(self) -> None:
         summary = json.loads(
             (ROOT / "evals" / "results" / "2026-09-01-codex-multitask-summary.json").read_text(encoding="utf-8")
         )
         skill_hash = _hash_tree(ROOT / ".agents" / "skills" / "rtl-ass")
         identity = summary["identity"]
-        self.assertEqual(
+        self.assertNotEqual(
             identity["harness_hash"],
             _hash_files((ROOT / "evals" / "run_codex_ab.py", ROOT / "evals" / "workflow_cases.py")),
         )
-        self.assertEqual(identity["skill_hash"], skill_hash)
+        self.assertNotEqual(identity["skill_hash"], skill_hash)
 
-        # This report is immutable evidence for the exact v1.0 runtime that was
-        # evaluated. Package-version changes legitimately alter the current
-        # runtime tree; they must not relabel an historical evaluation payload.
+        # The v1.2.0 hardening changes the harness, Skill, and runtime. The
+        # published v1.1.0 report remains evidence for its exact historical
+        # payload and must not be silently rebound to the current trees.
         self.assertEqual(identity["runtime_hash"], "acab6c1f573160c4209391a319170680059f33cc09675d25d1cd1606d72fd62d")
+        self.assertNotEqual(identity["runtime_hash"], _hash_tree(ROOT / "src" / "rtl_ass"))
         self.assertEqual(
             identity["on_payload_hash"],
             hashlib.sha256(f"{identity['skill_hash']}:{identity['runtime_hash']}".encode()).hexdigest(),

@@ -24,14 +24,33 @@ Run a local five-pair audit with:
 ```bash
 PYTHONPATH=src python3 evals/run_codex_ab.py \
   --output .rtl-ass/evals/fifo-paired-5 \
-  --replicates 5 --parallel 2 --timeout 600 \
+  --replicates 5 --parallel 1 --timeout 600 \
   --model gpt-5.6-sol --effort medium \
   --case repair-non-power-of-two-fifo
 ```
 
+Command network access is disabled by default. If the host cannot initialize Codex's isolated loopback network namespace, `--sandbox-network` retains the `workspace-write` filesystem sandbox while explicitly enabling command network access. The report records this weaker isolation setting; use it only for local workflow diagnostics.
+
 Select one of the six case IDs listed by `python3 evals/run_codex_ab.py --help`. There is deliberately no implicit all-case mode: each campaign receives a distinct output directory and report identity. Do not modify the runner, case registry, fixture, hidden grader, skill, or runtime while a campaign is running.
 
-The default `workspace-write` sandbox should be used. If an outer container prevents Codex from creating its nested sandbox, `--sandbox danger-full-access` is permitted only in an externally isolated disposable environment and must be disclosed as a limitation. Authentication is copied into a per-run temporary Codex home and removed after the run, which prevents user-global skills and configuration from contaminating the off condition.
+The audited reasoning-effort axis is `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Treat model and effort selection as experimental parameters: screen configurations with one independent pair on representative cases, then run at least five fresh pairs for any configuration used in an effectiveness claim. Do not combine reports whose prompt, fixture, hidden grader, harness, Skill, or runtime hashes differ. Token counts and latency are reportable directly; monetary cost requires a separately dated price source and is never inferred by this harness.
+
+The local mode uses Codex's `workspace-write` sandbox. It retains the host `CODEX_HOME` so Codex's trusted sandbox helper remains executable, ignores user configuration, disables plugins, and applies exact path-based `skills.config` exclusions to every host and repository Skill. The on condition therefore sees only the copied workspace RTL-ASS payload, while off sees no host RTL Skill.
+
+Formal effectiveness runs use `--outer-bwrap` and an extracted release Skill. The host-created boundary exposes only the public workspace, an isolated authentication home, the Codex package, a read-only resolver file, and read-only open-tool installations; the private grader remains host-only. Open tools are discovered from the invoking environment's `PATH`; non-system installation prefixes are mounted read-only under stable sandbox paths, while `/usr` tools use the existing read-only system mount. This mode is always serialized across evaluator processes and requires `--parallel 1`. A root-created systemd cgroup caps CPU, memory, swap, process count, and total runtime before `bwrap` drops the agent to the invoking unprivileged user and group. A half-second resource monitor can terminate the complete unit before its hard memory ceiling or when host available memory reaches the declared floor. A separate transport monitor terminates a run after 120 seconds of continuous network errors; terminal transport failure is infrastructure evidence and cannot enter the effectiveness denominator. The raw JSONL and resource telemetry stay below the ignored campaign directory, while their hashes, peak values, cgroup events, and exact policies enter the sanitized result.
+
+A formal campaign stops immediately after any infrastructure failure. The completed run retains its sanitized result and raw local artifacts, but the incomplete campaign emits no aggregate effectiveness report and must be restarted in a fresh output directory.
+
+```bash
+PYTHONPATH=src python3 evals/run_codex_ab.py \
+  --output .rtl-ass/evals/fifo-release-paired-5 \
+  --replicates 5 --parallel 1 --timeout 900 \
+  --model gpt-5.6-sol --effort high \
+  --outer-bwrap --skill-root build/extracted-skill/rtl-ass \
+  --case repair-non-power-of-two-fifo
+```
+
+The workflow monitor reports attempted network/package acquisition, proprietary EDA, nested model/agent invocation, off-condition Skill leakage, protected-fixture edits, malformed trace lines, and evidence classes outside the case policy. Its `compliant` field is an audit result, not a substitute for the independent correctness grader. Monitoring is limited to observable Codex command and file-change events; it does not infer opaque behavior inside an arbitrary generated program.
 
 Private fixtures are hidden only from each isolated Codex workspace during a run. Because they are published with the repository, this is a transparent regression/evaluation suite, not a secret or reusable benchmark. Five-pair results have wide confidence intervals and must be reported per task. Cross-task totals are descriptive only.
 

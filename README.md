@@ -1,14 +1,15 @@
-# RTL-ASS 1.1
+# RTL-ASS 1.2
 
 RTL-ASS is a vendor-neutral Codex skill for Verilog and SystemVerilog engineering. It augments Codex with RTL-specific task routing, deterministic open-source evidence adapters, bounded VCD/FST analysis, and an audited local knowledge index. Codex remains responsible for understanding the specification, editing code, interpreting evidence, and selecting the final implementation.
 
 RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or depend on proprietary EDA tools.
 
-## 1.1 capabilities
+## 1.2 capabilities
 
 - Verilog/SystemVerilog repository inspection without executing source.
-- Verilator lint and Icarus Verilog self-checking simulation evidence.
-- Yosys generic synthesis, bounded assertion checking, and combinational or bounded-sequential equivalence evidence.
+- One versioned CompileManifest for ordered sources, library files, include directories, language mode, defines, parameters, and top across every source-based adapter.
+- Verilator lint plus native Verilator or Icarus Verilog self-checking simulation evidence.
+- Yosys generic synthesis and bounded SAT checks, plus native SymbiYosys assertion and EQY equivalence evidence with explicit solver, depth, initialization, and counterexample semantics.
 - OpenSTA evidence only from an exact netlist, Liberty library, and SDC; unconstrained endpoints block closure claims.
 - Bounded VCD queries and first-divergence analysis; resource-bounded FST conversion through `fst2vcd` with original and converted hashes.
 - SQLite/FTS5 namespaces, immutable content identity, explicit RTL/TB/assertion roles, guarded lifecycle transitions, and append-only hash-chained audit events.
@@ -24,12 +25,12 @@ The core Python package uses only the standard library. EDA programs are optiona
 Python 3.11 or 3.12 is supported.
 
 ```bash
-python3 -m pip install rtl_ass-1.1.0-py3-none-any.whl
+python3 -m pip install rtl_ass-1.2.0-py3-none-any.whl
 rtl-ass --version
 rtl-ass doctor
 ```
 
-Install the `rtl-ass` skill directory from the release archive into the Codex skills directory, or use the repository copy at `.agents/skills/rtl-ass/`. The helper launcher works from a source checkout or with the wheel installed. See [installation and removal](docs/installation.md) for complete commands.
+Install the complete `rtl-ass` skill directory from the release archive into the Codex skills directory, or use the repository copy at `.agents/skills/rtl-ass/`. The release Skill carries a hash-verified embedded runtime; the repository launcher uses the matching source tree. See [installation and removal](docs/installation.md) for complete commands.
 
 ## Quick start
 
@@ -40,9 +41,18 @@ rtl-ass inspect path/to/project --json
 # Produce separate evidence classes
 rtl-ass verify lint --source rtl/top.sv --top top --artifact-dir artifacts
 rtl-ass verify simulate --source rtl/top.sv --source tb/top_tb.sv --top top_tb --artifact-dir artifacts
+rtl-ass verify simulate --backend verilator --manifest compile.json --artifact-dir artifacts/verilator
 rtl-ass verify synth --source rtl/top.sv --top top --artifact-dir artifacts
+rtl-ass verify synth --source rtl/top.sv --top top --liberty lib/cells.lib \
+  --artifact-dir artifacts/mapped-synthesis
+rtl-ass verify sta --synthesis-evidence artifacts/mapped-synthesis/synthesis-yosys-*/run-evidence.json \
+  --liberty lib/cells.lib --constraints constraints/top.sdc --top top --artifact-dir artifacts/sta
 rtl-ass verify formal --source rtl/top.sv --source formal/top_properties.sv \
   --top top_properties --depth 20 --initialization defined --artifact-dir artifacts
+rtl-ass verify formal --backend sby --manifest formal-compile.json \
+  --depth 20 --initialization defined --solver z3 --artifact-dir artifacts/sby
+rtl-ass verify equiv --backend eqy --reference-manifest reference.json \
+  --implementation-manifest implementation.json --depth 1 --solver z3 --artifact-dir artifacts/eqy
 
 # Query only a bounded waveform window/signal cone
 rtl-ass wave query artifacts/run.fst --signal 'tb.dut.*valid*' --start 100 --end 300 --max-events 200
@@ -77,14 +87,14 @@ The audit chain is tamper-evident rather than tamper-proof: a database owner can
 python3 -m compileall -q src tests evals tools .agents/skills/rtl-ass/scripts
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 PYTHONOPTIMIZE=1 PYTHONPATH=src python3 -m unittest discover -s tests -v
-ruff format --check src tests .agents/skills/rtl-ass/scripts
-ruff check src tests .agents/skills/rtl-ass/scripts
+ruff format --check src tests evals tools .agents/skills/rtl-ass/scripts
+ruff check src tests evals tools .agents/skills/rtl-ass/scripts
 mypy src tests tools evals
 python3 -m build
-twine check dist/*
+twine check dist/*.whl dist/*.tar.gz
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). See the [v1.1.0 release notes](docs/releases/v1.1.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). See the [v1.2.0 release notes](docs/releases/v1.2.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 

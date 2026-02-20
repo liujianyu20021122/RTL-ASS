@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -53,26 +53,131 @@ jobs:
         run: PYTHONOPTIMIZE=1 PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Build release distributions
         run: |
-          python -m build
-          python tools/build_release_assets.py
-          twine check dist/rtl_ass-1.1.0-py3-none-any.whl dist/rtl_ass-1.1.0.tar.gz
+          export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          python -m build --outdir dist
+          python -m build --outdir build/repro-dist
+          python tools/build_release_assets.py --dist dist
+          python tools/build_release_assets.py --dist build/repro-dist
+          cmp dist/rtl_ass-1.2.0-py3-none-any.whl build/repro-dist/rtl_ass-1.2.0-py3-none-any.whl
+          cmp dist/rtl_ass-1.2.0.tar.gz build/repro-dist/rtl_ass-1.2.0.tar.gz
+          cmp dist/rtl-ass-skill-1.2.0.zip build/repro-dist/rtl-ass-skill-1.2.0.zip
+          cmp dist/rtl-ass-sbom.spdx.json build/repro-dist/rtl-ass-sbom.spdx.json
+          cmp dist/SHA256SUMS build/repro-dist/SHA256SUMS
+          twine check dist/rtl_ass-1.2.0-py3-none-any.whl dist/rtl_ass-1.2.0.tar.gz
       - name: Installed CLI smoke
         run: |
           python -m venv build/ci-wheel-venv
-          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.1.0-py3-none-any.whl
+          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.2.0-py3-none-any.whl
           build/ci-wheel-venv/bin/rtl-ass --version
           build/ci-wheel-venv/bin/rtl-ass verify formal --help
           build/ci-wheel-venv/bin/rtl-ass verify equiv --help
           skill_smoke_dir=$(mktemp -d)
-          unzip -q dist/rtl-ass-skill-1.1.0.zip -d "$skill_smoke_dir"
-          build/ci-wheel-venv/bin/python "$skill_smoke_dir/rtl-ass/scripts/rtl_ass.py" --version
+          unzip -q dist/rtl-ass-skill-1.2.0.zip -d "$skill_smoke_dir"
+          python -m venv build/skill-only-venv
+          build/skill-only-venv/bin/python -I "$skill_smoke_dir/rtl-ass/scripts/rtl_ass.py" --version
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: matrix.python-version == '3.12'
         with:
           name: rtl-ass-release-candidate
           path: |
-            dist/rtl_ass-1.1.0-py3-none-any.whl
-            dist/rtl_ass-1.1.0.tar.gz
-            dist/rtl-ass-skill-1.1.0.zip
+            dist/rtl_ass-1.2.0-py3-none-any.whl
+            dist/rtl_ass-1.2.0.tar.gz
+            dist/rtl-ass-skill-1.2.0.zip
             dist/rtl-ass-sbom.spdx.json
             dist/SHA256SUMS
+
+  opensta-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install OpenSTA build and RTL audit dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes autoconf automake bison cmake flex gawk gtkwave iverilog libeigen3-dev libtool swig tcl-dev verilator yosys zlib1g-dev
+      - name: Build pinned CUDD 3.0.0 and OpenSTA 3.1.0
+        run: |
+          git init build/cudd-source
+          git -C build/cudd-source remote add origin https://github.com/cuddorg/cudd.git
+          git -C build/cudd-source fetch --depth 1 origin f54f533303640afd5dbe47a05ebeabb3066f2a25
+          git -C build/cudd-source checkout --detach FETCH_HEAD
+          cd build/cudd-source
+          autoreconf --force --install
+          ./configure --prefix="$GITHUB_WORKSPACE/build/cudd-install" --enable-shared=no --enable-dddmp=no --enable-obj=no
+          make --jobs=2
+          make install
+          cd "$GITHUB_WORKSPACE"
+          git init build/opensta-source
+          git -C build/opensta-source remote add origin https://github.com/The-OpenROAD-Project/OpenSTA.git
+          git -C build/opensta-source fetch --depth 1 origin c821ad1ad07031de831fd567fc626bf70d522c49
+          git -C build/opensta-source checkout --detach FETCH_HEAD
+          cmake -S build/opensta-source -B build/opensta-source/build -DCMAKE_BUILD_TYPE=RELEASE -DBUILD_TESTS=OFF -DUSE_TCL_READLINE=OFF -DCUDD_DIR="$GITHUB_WORKSPACE/build/cudd-install"
+          cmake --build build/opensta-source/build --parallel 2
+          echo "$GITHUB_WORKSPACE/build/opensta-source/build" >> "$GITHUB_PATH"
+      - name: Install package and audit dependencies
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Require real OpenSTA adapter and workflow coverage
+        run: |
+          command -v sta
+          python -m unittest \
+            tests.test_evidence.EvidenceTests.test_opensta_emits_timing_metrics_from_complete_inputs \
+            tests.test_evidence.EvidenceTests.test_opensta_negative_slack_is_not_a_passing_claim \
+            tests.test_evidence.EvidenceTests.test_opensta_zero_clock_scope_is_blocked \
+            tests.test_evidence.EvidenceTests.test_opensta_blocks_unconstrained_endpoints \
+            tests.test_workflow_cases.WorkflowCaseTests.test_timing_reference_closes_sta_and_preserves_function -v
+          python tools/release_audit.py --output build/opensta-release-audit
+
+  formal-drivers-gate:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install pinned formal build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes bison build-essential cmake flex gawk libffi-dev pkg-config zlib1g-dev
+          python -m pip install --require-hashes --no-deps --target build/formal-install -r .github/formal-requirements.txt
+      - name: Build matching Yosys, SymbiYosys, and EQY v0.68 sources
+        run: |
+          git init build/yosys-source
+          git -C build/yosys-source remote add origin https://github.com/YosysHQ/yosys.git
+          git -C build/yosys-source fetch --depth 1 origin 5d64ef308395b7a1f6c78f9c7046cdb3d8608549
+          git -C build/yosys-source checkout --detach FETCH_HEAD
+          git -C build/yosys-source submodule update --init --depth 1
+          cmake -S build/yosys-source -B build/yosys-source/build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/formal-install" \
+            -DYOSYS_WITHOUT_ABC=ON \
+            -DYOSYS_WITHOUT_SLANG=ON \
+            -DYOSYS_WITHOUT_TCL=ON \
+            -DYOSYS_WITHOUT_READLINE=ON
+          cmake --build build/yosys-source/build --parallel 2
+          cmake --install build/yosys-source/build --strip
+          git init build/sby-source
+          git -C build/sby-source remote add origin https://github.com/YosysHQ/sby.git
+          git -C build/sby-source fetch --depth 1 origin b1a1e98cba941ec8433f8dc27f416cd7bb7f14be
+          git -C build/sby-source checkout --detach FETCH_HEAD
+          make -C build/sby-source install PREFIX="$GITHUB_WORKSPACE/build/formal-install"
+          git init build/eqy-source
+          git -C build/eqy-source remote add origin https://github.com/YosysHQ/eqy.git
+          git -C build/eqy-source fetch --depth 1 origin 3bee46be95fa148275f023abd524fb8358da0b17
+          git -C build/eqy-source checkout --detach FETCH_HEAD
+          make -C build/eqy-source install \
+            PREFIX="$GITHUB_WORKSPACE/build/formal-install" \
+            YOSYS_CONFIG="$GITHUB_WORKSPACE/build/formal-install/bin/yosys-config"
+          echo "$GITHUB_WORKSPACE/build/formal-install/bin" >> "$GITHUB_PATH"
+      - name: Require real native formal and equivalence evidence
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'
+          yosys -V
+          sby --version
+          eqy --version
+          z3 --version
+          python -m unittest tests.test_formal_drivers -v

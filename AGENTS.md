@@ -74,6 +74,8 @@ Do not turn RTL-ASS into a separate RTL coding agent, an autonomous replacement 
 - Target Python 3.11 or newer and prefer the standard library for the core MVP.
 - Use SQLite and FTS5 as the default local index. Optional vector backends must remain optional.
 - Make CLI output deterministic and provide JSON output for Codex consumption.
+- Route every source-based evidence adapter through `CompileManifest`; do not reconstruct language, source order, libraries, includes, defines, parameters, or top independently per backend.
+- Treat external formal-driver markers as necessary but not sufficient evidence. Ambiguous output is blocked, and a negative formal/equivalence claim requires its retained counterexample.
 - Store paths portably; do not embed this machine's absolute paths in product defaults.
 - Use content hashes and transactional writes for mutable knowledge state.
 - Validate untrusted paths and never execute ingested RTL as part of indexing.
