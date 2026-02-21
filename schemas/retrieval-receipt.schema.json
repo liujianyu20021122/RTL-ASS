@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/retrieval-receipt.schema.json",
+  "title": "RTL-ASS Knowledge Retrieval Receipt",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "kind",
+    "actor",
+    "query",
+    "namespaces",
+    "limit",
+    "filters",
+    "result_count",
+    "results",
+    "retrieval_hash"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "kind": {
+      "const": "knowledge-retrieval"
+    },
+    "actor": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+    },
+    "query": {
+      "type": "string",
+      "minLength": 1
+    },
+    "namespaces": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+      }
+    },
+    "limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 50
+    },
+    "filters": {
+      "type": "object",
+      "required": [
+        "role",
+        "status",
+        "match_mode"
+      ],
+      "properties": {
+        "role": {
+          "enum": [
+            null,
+            "rtl-design",
+            "testbench",
+            "assertion",
+            "reference-model",
+            "fixture",
+            "package",
+            "interface",
+            "design-pattern",
+            "verification-pattern",
+            "bug-fix",
+            "tool-evidence"
+          ]
+        },
+        "status": {
+          "enum": [
+            null,
+            "raw",
+            "analyzed",
+            "candidate",
+            "verified",
+            "promoted",
+            "deprecated"
+          ]
+        },
+        "match_mode": {
+          "enum": [
+            "all",
+            "any"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "result_count": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 50
+    },
+    "results": {
+      "type": "array",
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "required": [
+          "index",
+          "id",
+          "namespace",
+          "role",
+          "status",
+          "language",
+          "title",
+          "summary",
+          "content_hash",
+          "source_uri",
+          "source_revision",
+          "source_path",
+          "license_spdx",
+          "license_status",
+          "metadata",
+          "verification",
+          "excerpt",
+          "rank"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "namespace": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"
+          },
+          "role": {
+            "enum": [
+              "rtl-design",
+              "testbench",
+              "assertion",
+              "reference-model",
+              "fixture",
+              "package",
+              "interface",
+              "design-pattern",
+              "verification-pattern",
+              "bug-fix",
+              "tool-evidence"
+            ]
+          },
+          "status": {
+            "enum": [
+              "raw",
+              "analyzed",
+              "candidate",
+              "verified",
+              "promoted",
+              "deprecated"
+            ]
+          },
+          "language": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1
+          },
+          "summary": {
+            "type": "string"
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "source_uri": {
+            "type": "string"
+          },
+          "source_revision": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "license_spdx": {
+            "type": "string",
+            "minLength": 1
+          },
+          "license_status": {
+            "enum": [
+              "known",
+              "unknown",
+              "incompatible",
+              "not-applicable"
+            ]
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "verification": {
+            "type": "object"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "rank": {
+            "type": "number"
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "retrieval_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "additionalProperties": false
+}

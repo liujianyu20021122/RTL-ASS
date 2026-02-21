@@ -18,21 +18,23 @@ Codex remains the engineer: inspect the user's project, reason about the specifi
    - Synthesis, formal equivalence, or STA: [synthesis-sta.md](references/synthesis-sta.md)
    - Knowledge ingest, retrieval, or promotion: [knowledge-governance.md](references/knowledge-governance.md)
    Do not read a reference merely because it is listed. In particular, load waveform guidance only when a real trace is needed and knowledge guidance only for retrieval or curation work.
-4. Query the local knowledge base only when existing patterns or verified cases can materially improve the task. Retrieve a small number of records, inspect provenance and applicability, then decide independently.
-5. Edit with the smallest coherent change. Do not ask a helper script or another model to write the RTL for Codex.
-6. Validate in proportion to risk. Keep compilation, simulation, waveform, formal, synthesis, and STA as separate evidence classes.
+4. Query the local knowledge base only when existing patterns or verified cases can materially improve the task. Use a small explicit top-k, retain a retrieval receipt, inspect only selected record contents, then decide independently.
+5. Before running final checks, name the concrete claims, mark each required or optional, and select the lowest-cost evidence for each. For a material change spanning multiple evidence classes, record this as `verification-plan.json` and validate it with `verify plan`; see [verification.md](references/verification.md).
+6. Edit with the smallest coherent change. Do not ask a helper script or another model to write the RTL for Codex.
+7. Validate in proportion to risk. Keep compilation, simulation, waveform, formal, synthesis, and STA as separate evidence classes.
 
 ## Delivery contract
 
 When a task materially changes RTL, a testbench, assertions, or constraints and the local helper is available:
 
 1. Reproduce the baseline failure without changing the supplied checker.
-2. Use direct tool commands as needed for diagnosis, but record the final applicable checks with the helper so each check has a hashed `run-evidence.json`.
-3. For an RTL repair with a runnable testbench, normally record separate lint, self-checking simulation, and synthesis runs. Add formal, equivalence, waveform, or STA only when they answer a distinct claim.
+2. Use direct tool commands as needed for diagnosis, but record the final applicable checks with the helper so each executed check has a hashed `run-evidence.json`.
+3. For a functional RTL repair with a runnable testbench, normally require lint plus one focused self-checking simulation. For a TB-only repair, normally require only the focused simulation. Add a second simulator, waveform, formal, equivalence, synthesis, or STA only when it answers a named distinct claim; synthesis is not a default behavioral check.
 4. Inspect every recorded status. A generated evidence file is not a pass, and a missing class must be reported as `not_available` or `not_evaluated` with its reason.
-5. In the final response, identify the exact changed files, the evidence classes and statuses, and the unverified boundary.
+5. When using a verification plan, link each final evidence record with `verify summarize --require-ready`. A successful ready gate is the stopping point: do not launch another EDA command unless an input changed or the user added a claim.
+6. In the final response, identify the exact changed files, the evidence classes and statuses, and the unverified boundary.
 
-Finish after the lowest-cost evidence set supports the requested claim. Do not add formal, waveform, synthesis, or STA merely to make the report look comprehensive; each extra class needs a concrete unresolved risk or user requirement.
+Finish after the lowest-cost evidence set supports the requested claim. Do not rerun an unchanged evidence identity or create `final2`-style duplicate directories. Do not add formal, waveform, synthesis, or STA merely to make the report look comprehensive; each extra class needs a concrete unresolved risk or user requirement. The helper serializes EDA execution per workspace; a `verification_busy` result is a bounded concurrency refusal, not an RTL failure.
 
 When formal, equivalence, waveform, or STA is only supplemental, preserve and report its first `fail` or `blocked` result instead of repeatedly rewriting harnesses or constraints. Retry only when the result plausibly exposes a candidate defect and resolving it is necessary for the requested claim. If the user explicitly requests that evidence class, treat it as primary and diagnose it to the agreed budget.
 
@@ -68,14 +70,17 @@ Prefer an installed `rtl-ass` command. From this repository, use:
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py doctor
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py inspect <project> --json
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py manifest validate <compile.json>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify plan <verification-plan.json>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source <rtl.sv> --top <top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --backend <iverilog-or-verilator> --source <rtl.sv> --source <tb.sv> --top <tb-top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source <rtl.sv> --top <top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify sta --synthesis-evidence <synthesis-run-evidence.json> --liberty <cells.lib> --constraints <design.sdc> --top <top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --backend <yosys-or-sby> --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --backend <yosys-or-eqy> --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --input-domain defined --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify summarize --plan <verification-plan.json> --evidence <claim-id>=<run-evidence.json> --require-ready
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <glob> --start <time> --end <time> > artifacts/rtl-ass/wave-query.json
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb search <query> --db <index.db> --namespace <name>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb search <query> --db <index.db> --namespace <name> --match any --limit 3 --actor codex --output artifacts/rtl-ass/retrieval.json
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb show <record-id> --db <index.db> --include-content
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb derive <source-id> --db <index.db> --namespace <name> --actor <actor> --role <role> --language <language> --title <title> --summary <summary> --content-file <file> --source-path <path> --method <method>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb import-pack <pack.json> --db <index.db> --namespace <name> --actor <actor>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb verify <record-id> --actor <actor> --evidence-json <run-evidence.json>

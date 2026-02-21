@@ -11,7 +11,7 @@ RTL-ASS uses semantic versioning. Schemas with `schema_version: 1.0`, CLI comman
 5. Build wheel, sdist, standalone skill archive, SPDX SBOM, and checksums in a clean output directory.
 6. Install the wheel into a new virtual environment, then extract the Skill into a separate isolated environment and prove its hash-verified bundled runtime works without the wheel installation.
 7. Inspect wheel/sdist contents, run `twine check`, and confirm no generated database/waveform, cache, research checkout, credential file/value, absolute workstation path, or proprietary dependency is shipped. Declared first-party evaluation VCD/FST fixtures are allowed and must be listed by the packaging audit.
-8. Confirm `v1.2.0` is absent locally and remotely, commit the reviewed release candidate, and create an annotated local tag only after approval.
-9. After explicit publication approval, push `main` and `v1.2.0`, create the GitHub release from the exact successful tag-CI artifact, upload all five unchanged files, and verify the remote commit, tag, asset names, and hashes. Never move or replace an existing release tag.
+8. Confirm `v1.3.0` is absent locally and remotely, commit the reviewed release candidate, and create an annotated local tag only after approval.
+9. After explicit publication approval, push `main` and `v1.3.0`, create the GitHub release from the exact successful tag-CI artifact, upload all five unchanged files, and verify the remote commit, tag, asset names, and hashes. Never move or replace an existing release tag.
 
 If an optional tool is unavailable, its scope is recorded as `not_available`; it cannot be counted as passing evidence. A release must not be described as STA-closed, formally exhaustive, or signoff-quality beyond the exact executed scope.

@@ -29,9 +29,15 @@ from rtl_ass.kb.gates import validate_run_evidence
 from rtl_ass.kb.ingest import ingest_path
 from rtl_ass.kb.models import LicenseStatus, LinkRelation, ObservationAttribution, RecordRole, RecordStatus
 from rtl_ass.kb.packs import load_knowledge_pack, write_knowledge_pack
+from rtl_ass.kb.retrieval import build_retrieval_receipt, write_retrieval_receipt
 from rtl_ass.project import inspect_project
 from rtl_ass.tools import discover_tools
 from rtl_ass.waveform import first_divergence_waveform, query_waveform
+from rtl_ass.workflow import (
+    load_verification_plan,
+    summarize_verification_plan,
+    verification_execution_lock,
+)
 
 
 def _enum_values(enum_type: type[StrEnum]) -> list[str]:
@@ -112,17 +118,29 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
 
     verify = commands.add_parser("verify", help="run bounded open-source RTL evidence tools")
     verify_commands = verify.add_subparsers(dest="verify_command", required=True)
+    plan = verify_commands.add_parser("plan", help="validate and hash a Codex-selected verification plan")
+    plan.add_argument("path")
+    plan.set_defaults(handler=_handle_verify_plan)
+    summarize = verify_commands.add_parser("summarize", help="revalidate explicitly linked evidence and stopping state")
+    summarize.add_argument("--plan", required=True)
+    summarize.add_argument("--evidence", action="append", default=[], metavar="CLAIM_ID=PATH")
+    summarize.add_argument(
+        "--require-ready",
+        action="store_true",
+        help="return a structured error unless every required claim is satisfied",
+    )
+    summarize.set_defaults(handler=_handle_verify_summarize)
     lint = verify_commands.add_parser("lint", help="run Verilator lint evidence")
     _add_compile_arguments(lint)
-    lint.set_defaults(handler=_handle_verify_lint)
+    lint.set_defaults(handler=_handle_verify_lint, requires_eda_lock=True)
     simulate = verify_commands.add_parser("simulate", help="compile and run with Icarus Verilog or Verilator")
     _add_compile_arguments(simulate)
     simulate.add_argument("--backend", choices=("iverilog", "verilator"), default="iverilog")
-    simulate.set_defaults(handler=_handle_verify_simulate)
+    simulate.set_defaults(handler=_handle_verify_simulate, requires_eda_lock=True)
     synthesize = verify_commands.add_parser("synth", help="run generic Yosys synthesis evidence")
     _add_compile_arguments(synthesize, default_timeout=120)
     synthesize.add_argument("--liberty", help="map to this exact Liberty library and emit a Verilog netlist")
-    synthesize.set_defaults(handler=_handle_verify_synth)
+    synthesize.set_defaults(handler=_handle_verify_synth, requires_eda_lock=True)
     formal = verify_commands.add_parser("formal", help="run bounded Yosys assertion evidence")
     _add_compile_arguments(formal, default_timeout=120)
     formal.add_argument("--depth", type=int, default=20, help="bounded time steps (1-1000)")
@@ -134,7 +152,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     )
     formal.add_argument("--backend", choices=("yosys", "sby"), default="yosys")
     formal.add_argument("--solver", choices=("bitwuzla", "boolector", "cvc5", "yices", "z3"), default="z3")
-    formal.set_defaults(handler=_handle_verify_formal)
+    formal.set_defaults(handler=_handle_verify_formal, requires_eda_lock=True)
     equivalence = verify_commands.add_parser("equiv", help="run Yosys combinational or bounded equivalence evidence")
     equivalence.add_argument("--reference-source", action="append")
     equivalence.add_argument("--implementation-source", action="append")
@@ -160,9 +178,10 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     )
     equivalence.add_argument("--artifact-dir", required=True)
     equivalence.add_argument("--timeout", type=int, default=120)
+    _add_lock_argument(equivalence)
     equivalence.add_argument("--backend", choices=("yosys", "eqy"), default="yosys")
     equivalence.add_argument("--solver", choices=("bitwuzla", "boolector", "cvc5", "yices", "z3"), default="z3")
-    equivalence.set_defaults(handler=_handle_verify_equivalence)
+    equivalence.set_defaults(handler=_handle_verify_equivalence, requires_eda_lock=True)
     sta = verify_commands.add_parser("sta", help="run OpenSTA with an exact netlist, Liberty, and SDC")
     sta_input = sta.add_mutually_exclusive_group(required=True)
     sta_input.add_argument("--netlist")
@@ -172,7 +191,8 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     sta.add_argument("--top", required=True)
     sta.add_argument("--artifact-dir", required=True)
     sta.add_argument("--timeout", type=int, default=120)
-    sta.set_defaults(handler=_handle_verify_sta)
+    _add_lock_argument(sta)
+    sta.set_defaults(handler=_handle_verify_sta, requires_eda_lock=True)
 
     wave = commands.add_parser("wave", help="query real VCD or FST waveform evidence")
     wave_commands = wave.add_subparsers(dest="wave_command", required=True)
@@ -180,13 +200,15 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     wave_query.add_argument("path")
     wave_query.add_argument("--signal", action="append", required=True)
     _add_wave_window_arguments(wave_query)
-    wave_query.set_defaults(handler=_handle_wave_query)
+    _add_lock_argument(wave_query)
+    wave_query.set_defaults(handler=_handle_wave_query, requires_eda_lock=True)
     wave_diff = wave_commands.add_parser("diff", help="find the first VCD or FST divergence after same-time updates")
     wave_diff.add_argument("path")
     wave_diff.add_argument("--expected", required=True)
     wave_diff.add_argument("--actual", required=True)
     _add_wave_window_arguments(wave_diff, default_max_events=100_000)
-    wave_diff.set_defaults(handler=_handle_wave_diff)
+    _add_lock_argument(wave_diff)
+    wave_diff.set_defaults(handler=_handle_wave_diff, requires_eda_lock=True)
 
     kb = commands.add_parser("kb", help="manage the audited local RTL knowledge index")
     kb_commands = kb.add_subparsers(dest="kb_command", required=True)
@@ -237,6 +259,14 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     search.add_argument("--limit", type=int, default=settings.search_limit)
     search.add_argument("--role", choices=_enum_values(RecordRole))
     search.add_argument("--status", choices=_enum_values(RecordStatus))
+    search.add_argument(
+        "--match",
+        choices=("all", "any"),
+        default="all",
+        help="require every query token or rank records matching any token",
+    )
+    search.add_argument("--actor", default="rtl-ass")
+    search.add_argument("--output", help="write an immutable retrieval receipt for workflow auditing")
     search.set_defaults(handler=_handle_kb_search)
 
     show = kb_commands.add_parser("show", help="show one knowledge record")
@@ -349,6 +379,16 @@ def _add_compile_arguments(parser: argparse.ArgumentParser, *, default_timeout: 
     _add_compile_option_arguments(parser)
     parser.add_argument("--artifact-dir", required=True)
     parser.add_argument("--timeout", type=int, default=default_timeout)
+    _add_lock_argument(parser)
+
+
+def _add_lock_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--lock-timeout",
+        type=int,
+        default=30,
+        help="seconds to wait for the one-per-workspace EDA execution lock",
+    )
 
 
 def _add_wave_window_arguments(parser: argparse.ArgumentParser, *, default_max_events: int = 1000) -> None:
@@ -378,6 +418,26 @@ def _handle_inspect(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_manifest_validate(args: argparse.Namespace) -> dict[str, Any]:
     return CompileManifest.load(args.path).summary()
+
+
+def _handle_verify_plan(args: argparse.Namespace) -> dict[str, Any]:
+    return load_verification_plan(args.path).summary()
+
+
+def _handle_verify_summarize(args: argparse.Namespace) -> dict[str, Any]:
+    summary = summarize_verification_plan(load_verification_plan(args.plan), args.evidence)
+    if args.require_ready and not summary["ready_to_stop"]:
+        raise RtlAssError(
+            "verification_plan_unsatisfied",
+            "required verification claims are not yet satisfied",
+            {
+                "plan_id": summary["plan_id"],
+                "plan_hash": summary["plan_hash"],
+                "missing_required_claims": summary["missing_required_claims"],
+                "unsatisfied_required_claims": summary["unsatisfied_required_claims"],
+            },
+        )
+    return summary
 
 
 def _handle_corpus_audit(args: argparse.Namespace) -> dict[str, Any]:
@@ -651,8 +711,22 @@ def _handle_kb_search(args: argparse.Namespace) -> dict[str, Any]:
         limit=args.limit,
         role=RecordRole(args.role) if args.role else None,
         status=RecordStatus(args.status) if args.status else None,
+        match_mode=args.match,
     )
-    return {"schema_version": "1.0", "count": len(results), "results": results}
+    if not args.output:
+        return {"schema_version": "1.0", "count": len(results), "results": results}
+    receipt = build_retrieval_receipt(
+        results,
+        actor=args.actor,
+        query=args.query,
+        namespaces=args.namespace,
+        limit=args.limit,
+        role=args.role,
+        status=args.status,
+        match_mode=args.match,
+    )
+    write_retrieval_receipt(receipt, args.output)
+    return receipt
 
 
 def _handle_kb_show(args: argparse.Namespace) -> dict[str, Any]:
@@ -774,7 +848,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser(settings)
     args = parser.parse_args(argv)
     try:
-        output = args.handler(args)
+        if getattr(args, "requires_eda_lock", False):
+            with verification_execution_lock(args.lock_timeout):
+                output = args.handler(args)
+        else:
+            output = args.handler(args)
     except RtlAssError as exc:
         print(json.dumps(exc.to_dict(), ensure_ascii=False, sort_keys=True, indent=2), file=sys.stderr)
         return 2

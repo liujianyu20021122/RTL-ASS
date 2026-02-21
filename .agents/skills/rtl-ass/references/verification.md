@@ -24,6 +24,48 @@ Use the least expensive evidence that answers the current question, then increas
 
 Do not collapse these into one pass/fail flag.
 
+## Verification plan and stopping gate
+
+For a material edit that needs multiple evidence classes, write one small plan before the final checks. Codex chooses every claim; the helper only validates the contract and current evidence.
+
+```json
+{
+  "schema_version": "1.0",
+  "plan_id": "focused-repair",
+  "task_class": "debugging",
+  "claims": [
+    {
+      "id": "regression",
+      "statement": "The supplied self-checking regression passes.",
+      "evidence_kind": "simulation",
+      "requirement": "required",
+      "expected_status": "pass"
+    },
+    {
+      "id": "synth-readiness",
+      "statement": "The changed design remains synthesizable.",
+      "evidence_kind": "synthesis",
+      "requirement": "optional",
+      "expected_status": "pass"
+    }
+  ],
+  "stop_policy": {
+    "max_retries_per_claim": 1,
+    "max_parallel_eda": 1
+  }
+}
+```
+
+Validate it with `verify plan verification-plan.json`. After the selected final runs, use one explicit link per attempt:
+
+```bash
+rtl-ass verify summarize --plan verification-plan.json \
+  --evidence regression=artifacts/rtl-ass/simulation/<run>/run-evidence.json \
+  --require-ready
+```
+
+Optional evidence does not block readiness. The summary rechecks current subjects, raw artifacts, and evidence JSON; it reports duplicate `(kind, input_hash)` executions and retry-budget excess. If `--require-ready` succeeds, stop running EDA tools and deliver. If an input changes, the old record becomes stale and cannot close the plan.
+
 For a material post-change check, prefer the RTL-ASS `verify` subcommands over an unrecorded final command when the helper is available. Each evidence class must use the exact ordered sources and top for that check, live in its own artifact directory, and end with an inspected `run-evidence.json`. Ad hoc commands remain useful for diagnosis but do not replace the normalized final record.
 
 Use one validated CompileManifest when the build needs include directories, library files, defines, parameter overrides, or an explicit language mode. The manifest paths are relative to its own directory. Pass the same manifest to lint, simulation, synthesis, and formal runs so backend differences cannot silently change elaboration. Inline `--source` remains suitable for small checks but cannot be mixed with `--manifest`.
@@ -45,7 +87,7 @@ Icarus is the default simulation backend and is useful for quick self-checking t
 
 Interpret the recorded phase before attributing a failed run. `not_available` means discovery did not find a required tool; a launch failure is `blocked`; a nonzero compiler result is `fail`; and a zero-result compile without its promised executable is `blocked` with `missing_compiled_artifact`. A failed version probe leaves `tool.version` as `unknown` and retains the probe diagnostic separately. None of these infrastructure or elaboration states alone proves an RTL behavioral defect.
 
-Do not turn an optional confidence check into an open-ended subtask. If a supplemental formal, equivalence, waveform, or timing run is blocked or fails because its harness or inputs are incomplete, retain that evidence and state the boundary. Continue only when it indicates a plausible product defect or the task specifically requires that class to pass.
+Do not turn an optional confidence check into an open-ended subtask. If a supplemental formal, equivalence, waveform, or timing run is blocked or fails because its harness or inputs are incomplete, retain that first evidence and state the boundary. Continue only when it indicates a plausible product defect or the task specifically requires that class to pass. Never repeat the same evidence identity merely under a new artifact-directory name.
 
 For bounded formal, require at least one assertion after elaboration, record the bound and initialization assumptions, and retain the counterexample. Use the Yosys backend for a focused local SAT check or `--backend sby` for native SymbiYosys orchestration with an explicit open solver. A passing bound does not establish behavior beyond that bound. For equivalence, keep the reference and implementation source identities and tops distinct; do not compare a candidate with itself or erase the direction of the comparison.
 

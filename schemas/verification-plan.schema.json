@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/verification-plan.schema.json",
+  "title": "RTL-ASS Verification Plan",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "plan_id",
+    "task_class",
+    "claims",
+    "stop_policy"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "plan_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+    },
+    "task_class": {
+      "enum": [
+        "generation",
+        "analysis",
+        "debugging",
+        "verification",
+        "optimization"
+      ]
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 16,
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "statement",
+          "evidence_kind",
+          "requirement",
+          "expected_status"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]{0,63}$"
+          },
+          "statement": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "evidence_kind": {
+            "enum": [
+              "lint",
+              "compile",
+              "simulation",
+              "waveform",
+              "formal",
+              "equivalence",
+              "synthesis",
+              "sta",
+              "coverage",
+              "mutation"
+            ]
+          },
+          "requirement": {
+            "enum": [
+              "required",
+              "optional"
+            ]
+          },
+          "expected_status": {
+            "type": "string"
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "evidence_kind": {
+                  "const": "waveform"
+                }
+              },
+              "required": [
+                "evidence_kind"
+              ]
+            },
+            "then": {
+              "properties": {
+                "expected_status": {
+                  "enum": [
+                    "complete",
+                    "found",
+                    "not_found"
+                  ]
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "expected_status": {
+                  "const": "pass"
+                }
+              }
+            }
+          }
+        ],
+        "additionalProperties": false
+      }
+    },
+    "stop_policy": {
+      "type": "object",
+      "required": [
+        "max_retries_per_claim",
+        "max_parallel_eda"
+      ],
+      "properties": {
+        "max_retries_per_claim": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3
+        },
+        "max_parallel_eda": {
+          "const": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

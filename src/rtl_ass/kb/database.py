@@ -36,11 +36,14 @@ from rtl_ass.kb.schema import (
 _SEARCH_TOKEN = re.compile(r"[\w.$:/+-]+", re.UNICODE)
 
 
-def _fts_expression(query: str) -> str:
+def _fts_expression(query: str, match_mode: str) -> str:
     tokens = _SEARCH_TOKEN.findall(query)
     if not tokens:
         raise RtlAssError("empty_search", "search query must contain at least one searchable token")
-    return " AND ".join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
+    if match_mode not in {"all", "any"}:
+        raise RtlAssError("invalid_match_mode", "search match mode must be 'all' or 'any'")
+    operator = " AND " if match_mode == "all" else " OR "
+    return operator.join(f'"{token.replace(chr(34), chr(34) * 2)}"' for token in tokens)
 
 
 class KnowledgeDatabase(DatabaseRecordStore):
@@ -250,6 +253,7 @@ class KnowledgeDatabase(DatabaseRecordStore):
         limit: int = 5,
         role: RecordRole | None = None,
         status: RecordStatus | None = None,
+        match_mode: str = "all",
     ) -> list[dict[str, Any]]:
         namespace_values = tuple(namespaces)
         if not namespace_values:
@@ -259,7 +263,7 @@ class KnowledgeDatabase(DatabaseRecordStore):
         if limit < 1 or limit > 50:
             raise RtlAssError("invalid_limit", "search limit must be between 1 and 50", {"limit": limit})
 
-        expression = _fts_expression(query)
+        expression = _fts_expression(query, match_mode)
         namespace_slots = ",".join("?" for _ in namespace_values)
         filters = [f"r.namespace IN ({namespace_slots})"]
         parameters: list[Any] = [expression, *namespace_values]

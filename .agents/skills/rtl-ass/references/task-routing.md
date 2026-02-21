@@ -18,6 +18,19 @@ Reproduce on unchanged inputs, preserve the failing artifact, locate the first d
 
 Translate requirements into checks. Use directed edge cases, assertions, reference models, constrained/random exploration, coverage, mutation, and formal where each adds distinct confidence. Assess the testbench itself; a weak checker can pass a broken DUT.
 
+Select evidence by claim, not by habit:
+
+| Claim | Normal first evidence | Add only when needed |
+|---|---|---|
+| TB/scoreboard behavior | focused self-checking simulation | waveform for sampling/divergence diagnosis |
+| RTL functional repair | lint and focused self-checking simulation | independent frontend or equivalence for a concrete semantic risk |
+| Width, signedness, or parameter boundary | lint and boundary simulation | equivalence when a trustworthy reference exists |
+| Assertion/property behavior | bounded formal with explicit scope | deeper bound only when the property requires it |
+| Synthesizability, area, or structure | synthesis | mapped synthesis when a Liberty-specific claim exists |
+| Timing | Liberty-mapped synthesis and linked STA | functional/equivalence evidence to freeze behavior |
+
+Do not synthesize a TB-only change, produce a waveform without a trace question, run formal without a property claim, or run STA without a mapped netlist, Liberty, and constraints.
+
 ## Optimization
 
 Freeze behavior and baseline metrics first. Generate bounded alternatives, then require functional regression and equivalence when applicable before comparing synthesis or timing evidence. Treat interface latency, protocol, clocks, and exceptions as contract changes.

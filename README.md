@@ -1,10 +1,10 @@
-# RTL-ASS 1.2
+# RTL-ASS 1.3
 
 RTL-ASS is a vendor-neutral Codex skill for Verilog and SystemVerilog engineering. It augments Codex with RTL-specific task routing, deterministic open-source evidence adapters, bounded VCD/FST analysis, and an audited local knowledge index. Codex remains responsible for understanding the specification, editing code, interpreting evidence, and selecting the final implementation.
 
 RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or depend on proprietary EDA tools.
 
-## 1.2 capabilities
+## 1.3 capabilities
 
 - Verilog/SystemVerilog repository inspection without executing source.
 - One versioned CompileManifest for ordered sources, library files, include directories, language mode, defines, parameters, and top across every source-based adapter.
@@ -17,6 +17,8 @@ RTL-ASS does not call another model, generate RTL behind Codex's back, apply pat
 - A first-party Apache-2.0 starter pack with RTL, TB, assertions, and focused engineering cards.
 - A reviewed 1,429-file open-source HDL corpus lock with isolated provenance and lifecycle state; upstream code is not redistributed.
 - A six-class paired Codex workflow audit covering RTL generation, repair, RTL/TB attribution, SystemVerilog signed arithmetic, FST localization, and OpenSTA-driven refinement.
+- Task-scoped verification plans, current-evidence summaries, duplicate-run detection, and one bounded EDA execution lock per workspace.
+- Immutable retrieval receipts plus paired empty/populated-index ablations that distinguish returned cards from records Codex actually inspects.
 
 The core Python package uses only the standard library. EDA programs are optional open-source executables discovered at runtime.
 
@@ -25,7 +27,7 @@ The core Python package uses only the standard library. EDA programs are optiona
 Python 3.11 or 3.12 is supported.
 
 ```bash
-python3 -m pip install rtl_ass-1.2.0-py3-none-any.whl
+python3 -m pip install rtl_ass-1.3.0-py3-none-any.whl
 rtl-ass --version
 rtl-ass doctor
 ```
@@ -37,6 +39,9 @@ Install the complete `rtl-ass` skill directory from the release archive into the
 ```bash
 # Inspect without executing RTL
 rtl-ass inspect path/to/project --json
+
+# Validate Codex's explicit final-claim plan
+rtl-ass verify plan verification-plan.json
 
 # Produce separate evidence classes
 rtl-ass verify lint --source rtl/top.sv --top top --artifact-dir artifacts
@@ -54,6 +59,10 @@ rtl-ass verify formal --backend sby --manifest formal-compile.json \
 rtl-ass verify equiv --backend eqy --reference-manifest reference.json \
   --implementation-manifest implementation.json --depth 1 --solver z3 --artifact-dir artifacts/eqy
 
+# Recheck current evidence and stop when every required claim is satisfied
+rtl-ass verify summarize --plan verification-plan.json \
+  --evidence regression=artifacts/simulation/<run>/run-evidence.json --require-ready
+
 # Query only a bounded waveform window/signal cone
 rtl-ass wave query artifacts/run.fst --signal 'tb.dut.*valid*' --start 100 --end 300 --max-events 200
 rtl-ass wave diff artifacts/run.fst --expected tb.expected --actual tb.actual --start 100 --end 300
@@ -63,7 +72,9 @@ rtl-ass kb init --db .rtl-ass/knowledge.db --actor local-user
 rtl-ass kb pack-validate library/starter/pack.json
 rtl-ass kb import-pack library/starter/pack.json --db .rtl-ass/knowledge.db \
   --namespace builtin:starter --actor local-user
-rtl-ass kb search ready --db .rtl-ass/knowledge.db --namespace builtin:starter
+rtl-ass kb search 'ready valid backpressure' --db .rtl-ass/knowledge.db --namespace builtin:starter \
+  --match any --limit 3 --actor codex --output artifacts/rtl-ass/retrieval.json
+rtl-ass kb show <record-id> --db .rtl-ass/knowledge.db --include-content
 
 # Reproduce the reviewed local upstream index (source checkouts stay ignored)
 rtl-ass corpus lock corpus/ingestion-policy.json \
@@ -94,7 +105,7 @@ python3 -m build
 twine check dist/*.whl dist/*.tar.gz
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). See the [v1.2.0 release notes](docs/releases/v1.2.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); reviewed results include the [six-class Codex workflow audit](evals/results/2026-09-01-codex-multitask-workflow-audit.md) and [v1.3.0 retrieval ablation](evals/results/2026-09-03-v1.3.0-retrieval-ablation.md). See the [v1.3.0 release notes](docs/releases/v1.3.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 

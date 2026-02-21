@@ -58,21 +58,21 @@ jobs:
           python -m build --outdir build/repro-dist
           python tools/build_release_assets.py --dist dist
           python tools/build_release_assets.py --dist build/repro-dist
-          cmp dist/rtl_ass-1.2.0-py3-none-any.whl build/repro-dist/rtl_ass-1.2.0-py3-none-any.whl
-          cmp dist/rtl_ass-1.2.0.tar.gz build/repro-dist/rtl_ass-1.2.0.tar.gz
-          cmp dist/rtl-ass-skill-1.2.0.zip build/repro-dist/rtl-ass-skill-1.2.0.zip
+          cmp dist/rtl_ass-1.3.0-py3-none-any.whl build/repro-dist/rtl_ass-1.3.0-py3-none-any.whl
+          cmp dist/rtl_ass-1.3.0.tar.gz build/repro-dist/rtl_ass-1.3.0.tar.gz
+          cmp dist/rtl-ass-skill-1.3.0.zip build/repro-dist/rtl-ass-skill-1.3.0.zip
           cmp dist/rtl-ass-sbom.spdx.json build/repro-dist/rtl-ass-sbom.spdx.json
           cmp dist/SHA256SUMS build/repro-dist/SHA256SUMS
-          twine check dist/rtl_ass-1.2.0-py3-none-any.whl dist/rtl_ass-1.2.0.tar.gz
+          twine check dist/rtl_ass-1.3.0-py3-none-any.whl dist/rtl_ass-1.3.0.tar.gz
       - name: Installed CLI smoke
         run: |
           python -m venv build/ci-wheel-venv
-          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.2.0-py3-none-any.whl
+          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.3.0-py3-none-any.whl
           build/ci-wheel-venv/bin/rtl-ass --version
           build/ci-wheel-venv/bin/rtl-ass verify formal --help
           build/ci-wheel-venv/bin/rtl-ass verify equiv --help
           skill_smoke_dir=$(mktemp -d)
-          unzip -q dist/rtl-ass-skill-1.2.0.zip -d "$skill_smoke_dir"
+          unzip -q dist/rtl-ass-skill-1.3.0.zip -d "$skill_smoke_dir"
           python -m venv build/skill-only-venv
           build/skill-only-venv/bin/python -I "$skill_smoke_dir/rtl-ass/scripts/rtl_ass.py" --version
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -80,9 +80,9 @@ jobs:
         with:
           name: rtl-ass-release-candidate
           path: |
-            dist/rtl_ass-1.2.0-py3-none-any.whl
-            dist/rtl_ass-1.2.0.tar.gz
-            dist/rtl-ass-skill-1.2.0.zip
+            dist/rtl_ass-1.3.0-py3-none-any.whl
+            dist/rtl_ass-1.3.0.tar.gz
+            dist/rtl-ass-skill-1.3.0.zip
             dist/rtl-ass-sbom.spdx.json
             dist/SHA256SUMS
 

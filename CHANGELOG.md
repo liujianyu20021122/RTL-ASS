@@ -2,7 +2,16 @@
 
 All notable changes use semantic versioning.
 
-## Unreleased
+## 1.3.0 — 2026-09-03
+
+- Added Codex-selected verification plans and current-evidence summaries with explicit required/optional claims, bounded retry policy, duplicate evidence detection, and an observable ready-to-stop gate.
+- Serialized CLI EDA execution with one bounded, symlink-safe workspace lock and added workflow-efficiency reporting for redundant evidence and post-ready tool calls.
+- Tightened Skill routing so TB-only and functional RTL tasks no longer default to synthesis, waveform, formal, equivalence, or STA without a distinct claim.
+- Centralized stable waveform-result validation for both product summaries and the isolated Codex evaluator.
+- Added immutable retrieval receipts that bind the exact query, explicit namespaces, match policy, filters, ordered result identities, provenance, licenses, and content hashes.
+- Added explicit all-token/any-token FTS modes after real Codex traces showed that long natural-language AND queries could silently miss a relevant card; no hidden fallback is performed.
+- Added a contamination-gated retrieval A/B mode that keeps RTL-ASS constant, distinguishes returned cards from full-content reads, and reports retrieval effects independently from correctness and infrastructure.
+- Replaced substring-based EDA command classification with parsed helper subcommands and exact tool executables, preventing log-inspection paths from becoming false post-ready evidence findings.
 
 ## 1.2.0 — 2026-09-01
 
