@@ -135,6 +135,7 @@ class CliTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(payload["status"], "pass", payload["summary"])
         self.assertEqual(payload["tool"]["name"], "verilator-binary")
+        self.assertIn("-Wno-fatal", payload["commands"][0])
 
     @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
     def test_formal_and_equivalence_cli_emit_machine_readable_evidence(self) -> None:

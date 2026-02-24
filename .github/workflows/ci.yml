@@ -50,7 +50,7 @@ jobs:
       - name: Unit tests
         run: tools/ci_run_audited.sh "Unit tests" build/ci-logs/unit-tests.log env PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Unit tests without runtime assertions
-        run: PYTHONOPTIMIZE=1 PYTHONPATH=src python -m unittest discover -s tests -v
+        run: tools/ci_run_audited.sh "Optimized unit tests" build/ci-logs/optimized-unit-tests.log env PYTHONOPTIMIZE=1 PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Build release distributions
         run: |
           export SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
@@ -115,14 +115,15 @@ jobs:
           git -C build/opensta-source remote add origin https://github.com/The-OpenROAD-Project/OpenSTA.git
           git -C build/opensta-source fetch --depth 1 origin c821ad1ad07031de831fd567fc626bf70d522c49
           git -C build/opensta-source checkout --detach FETCH_HEAD
-          cmake -S build/opensta-source -B build/opensta-source/build -DCMAKE_BUILD_TYPE=RELEASE -DBUILD_TESTS=OFF -DUSE_TCL_READLINE=OFF -DCUDD_DIR="$GITHUB_WORKSPACE/build/cudd-install"
-          cmake --build build/opensta-source/build --parallel 2
+          /usr/bin/cmake -S build/opensta-source -B build/opensta-source/build -DCMAKE_BUILD_TYPE=RELEASE -DBUILD_TESTS=OFF -DUSE_TCL_READLINE=OFF -DCUDD_DIR="$GITHUB_WORKSPACE/build/cudd-install"
+          /usr/bin/cmake --build build/opensta-source/build --parallel 2
           echo "$GITHUB_WORKSPACE/build/opensta-source/build" >> "$GITHUB_PATH"
           BASH
       - name: Install package and audit dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
       - name: Require real OpenSTA adapter and workflow coverage
         run: |
+          tools/ci_run_audited.sh "OpenSTA evidence gate" build/ci-logs/opensta-gate.log bash -euo pipefail <<'BASH'
           command -v sta
           python -m unittest \
             tests.test_evidence.EvidenceTests.test_opensta_emits_timing_metrics_from_complete_inputs \
@@ -131,6 +132,7 @@ jobs:
             tests.test_evidence.EvidenceTests.test_opensta_blocks_unconstrained_endpoints \
             tests.test_workflow_cases.WorkflowCaseTests.test_timing_reference_closes_sta_and_preserves_function -v
           python tools/release_audit.py --output build/opensta-release-audit
+          BASH
 
   formal-drivers-gate:
     runs-on: ubuntu-24.04
@@ -153,15 +155,15 @@ jobs:
           git -C build/yosys-source fetch --depth 1 origin 5d64ef308395b7a1f6c78f9c7046cdb3d8608549
           git -C build/yosys-source checkout --detach FETCH_HEAD
           git -C build/yosys-source submodule update --init --depth 1
-          cmake -S build/yosys-source -B build/yosys-source/build \
+          /usr/bin/cmake -S build/yosys-source -B build/yosys-source/build \
             -DCMAKE_BUILD_TYPE=Release \
             -DCMAKE_INSTALL_PREFIX="$GITHUB_WORKSPACE/build/formal-install" \
             -DYOSYS_WITHOUT_ABC=ON \
             -DYOSYS_WITHOUT_SLANG=ON \
             -DYOSYS_WITHOUT_TCL=ON \
             -DYOSYS_WITHOUT_READLINE=ON
-          cmake --build build/yosys-source/build --parallel 2
-          cmake --install build/yosys-source/build --strip
+          /usr/bin/cmake --build build/yosys-source/build --parallel 2
+          /usr/bin/cmake --install build/yosys-source/build --strip
           git init build/sby-source
           git -C build/sby-source remote add origin https://github.com/YosysHQ/sby.git
           git -C build/sby-source fetch --depth 1 origin b1a1e98cba941ec8433f8dc27f416cd7bb7f14be
@@ -178,6 +180,7 @@ jobs:
           BASH
       - name: Require real native formal and equivalence evidence
         run: |
+          tools/ci_run_audited.sh "Native formal evidence gate" build/ci-logs/formal-gate.log bash -euo pipefail <<'BASH'
           python -m pip install --upgrade pip
           python -m pip install -e '.[dev]'
           yosys -V
@@ -185,3 +188,4 @@ jobs:
           eqy --version
           z3 --version
           python -m unittest tests.test_formal_drivers -v
+          BASH

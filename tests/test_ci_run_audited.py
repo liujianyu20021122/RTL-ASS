@@ -67,7 +67,7 @@ class CiRunAuditedTests(unittest.TestCase):
 
             annotation = result.stdout.splitlines()[-1]
             self.assertEqual(result.returncode, 1)
-            self.assertLessEqual(len(annotation), 12064)
+            self.assertLessEqual(len(annotation), 8064)
             self.assertNotIn("prefix-", annotation)
             self.assertIn("-suffix", annotation)
 
