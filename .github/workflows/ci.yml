@@ -99,7 +99,7 @@ jobs:
       - name: Install OpenSTA build and RTL audit dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes autoconf automake bison cmake flex gawk gtkwave iverilog libeigen3-dev libtool swig tcl-dev verilator yosys zlib1g-dev
+          sudo apt-get install --yes autoconf automake bison cmake flex gawk gtkwave iverilog libeigen3-dev libfl-dev libtool swig tcl-dev verilator yosys zlib1g-dev
       - name: Build pinned CUDD 3.0.0 and OpenSTA 3.1.0
         run: |
           tools/ci_run_audited.sh "OpenSTA source build" build/ci-logs/opensta-build.log bash -euo pipefail <<'BASH'
@@ -117,7 +117,10 @@ jobs:
           git -C build/opensta-source remote add origin https://github.com/The-OpenROAD-Project/OpenSTA.git
           git -C build/opensta-source fetch --depth 1 origin c821ad1ad07031de831fd567fc626bf70d522c49
           git -C build/opensta-source checkout --detach FETCH_HEAD
-          test -f /usr/include/FlexLexer.h
+          if [[ ! -f /usr/include/FlexLexer.h ]]; then
+            echo "OpenSTA requires /usr/include/FlexLexer.h from libfl-dev" >&2
+            exit 1
+          fi
           /usr/bin/cmake -S build/opensta-source -B build/opensta-source/build -DCMAKE_BUILD_TYPE=RELEASE -DBUILD_TESTS=OFF -DUSE_TCL_READLINE=OFF -DFLEX_INCLUDE_DIR=/usr/include -DCUDD_DIR="$GITHUB_WORKSPACE/build/cudd-install"
           /usr/bin/cmake --build build/opensta-source/build --parallel 2
           echo "$GITHUB_WORKSPACE/build/opensta-source/build" >> "$GITHUB_PATH"
@@ -150,7 +153,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes bison build-essential cmake flex gawk libffi-dev pkg-config zlib1g-dev
-          python -m pip install --require-hashes --no-deps --target build/formal-install -r .github/formal-requirements.txt
+          python -m pip install --require-hashes --no-deps -r .github/formal-requirements.txt
       - name: Build matching Yosys, SymbiYosys, and EQY v0.68 sources
         run: |
           tools/ci_run_audited.sh "Formal driver source build" build/ci-logs/formal-build.log bash -euo pipefail <<'BASH'
