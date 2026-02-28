@@ -44,17 +44,19 @@ Validate the public manifest with:
 PYTHONPATH=src python3 evals/validate_cases.py evals/cases.json
 ```
 
-RTL-ASS 1.1 publishes both this protocol and the reviewed six-class workflow audit, while making no general model-uplift claim. The audit is published in
+RTL-ASS 1.1 publishes both this protocol and the reviewed six-class workflow audit, with task completion improving from 23/30 to 29/30 in those cases. The audit is published in
 [`results/2026-09-01-codex-multitask-workflow-audit.md`](results/2026-09-01-codex-multitask-workflow-audit.md).
 
 The first treatment-bound product and plausible-irrelevant development observations, their forward-policy replay,
 and the resource-protected follow-up stop are recorded in the
 [`2026-09-04 causal retrieval controls`](results/2026-09-04-causal-retrieval-controls.md). They validate and repair
-the experimental mechanism; they are not an effectiveness claim.
+the experimental mechanism and retain the observed lint failures and additional cost.
 
 The complete signed-width product, relevant, and plausible-irrelevant results are recorded in the
 [`2026-09-05 frozen causal retrieval campaign`](results/2026-09-05-frozen-causal-retrieval-campaign.md). The task
-reached a native 5/5 ceiling and does not support a correctness or general efficiency uplift claim.
+reached 5/5 correctness in every condition. Relevant retrieval reduced aggregate time by 2.27% with mixed paired
+timings and higher token use; the product and irrelevant-card contrasts cost more. See the
+[current measured-effects summary](../docs/evaluation.md#measured-effects-and-scope) for baselines and scope.
 
 ## Observable Codex workflow audit
 

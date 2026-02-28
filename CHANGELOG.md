@@ -45,7 +45,7 @@ All notable changes use semantic versioning.
 - Expanded strict static typing from the release subset to all repository Python modules under `src`, `tests`, `tools`, and `evals`.
 - Made sequential Yosys equivalence portable across the supported open-tool floor and replaced a converter-version-dependent FST byte comparison with separate container-integrity and decoded-semantic checks.
 
-Known boundaries: the reviewed corpus remains local and untrusted until explicitly verified; Yosys formal/equivalence evidence is bounded; OpenSTA is not physical signoff; the transparent five-pair-per-class Codex audit validates Skill activation and evidence behavior but does not establish universal correctness or efficiency uplift.
+Known boundaries: the reviewed corpus remains local and untrusted until explicitly verified; Yosys formal/equivalence evidence is bounded; OpenSTA is not physical signoff. The transparent five-pair-per-class Codex audit records improved completion and evidence behavior across its six tested classes, with higher aggregate input-token cost. Current retrieval comparisons and their task-specific efficiency improvements are summarized in [evaluation](docs/evaluation.md#measured-effects-and-scope).
 
 ## 1.0.0 — 2026-08-31
 
@@ -60,4 +60,4 @@ Initial stable release.
 - Added the first-party ready/valid RTL, TB, assertion, and engineering-card starter pack.
 - Added JSON schemas, Python 3.11/3.12 CI, optimized-runtime tests, strict typing/linting, source/wheel/skill packaging, SBOM/checksum generation, and reproducible release auditing.
 
-Known boundaries: Yosys-native formal and equivalence are bounded; OpenSTA is not physical signoff; controlled Codex skill-off/skill-on model evaluation results are not asserted by this release.
+Verification scope: the initial release supplies the knowledge and evidence mechanisms. Subsequent paired workflow and retrieval observations are documented in [evaluation](docs/evaluation.md#measured-effects-and-scope), separately from the 1.0.0 release artifacts. Yosys-native formal and equivalence remain bounded; OpenSTA is not physical signoff.

@@ -68,4 +68,7 @@ Use the actual extracted Skill path. Both arms load the same Skill and direct pr
 on arm receives the source record. Grader files and the treatment rationale stay outside the agent workspace.
 Generated reports retain traces, candidate hashes, resource telemetry, returned/read identities, declarations,
 constraint results and evidence hashes. Inspect individual outcomes before scheduling five fresh pairs.
-One source file and one pair cannot establish correct use of the other 134 RTL files or general efficiency.
+Current measured coverage is one pinned source file and one paired task; the other 134 corpus RTL files remain
+outside this application evaluation. The [first development observation](../evals/results/2026-09-05-file-application-smoke.md)
+recorded a modest elapsed-time improvement and lower token use with the relevant file. Its frozen-grader results
+remain separate from the pending corrected-grader replay and final regression closure.

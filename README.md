@@ -4,6 +4,8 @@ RTL-ASS is a retrieval-first, vendor-neutral Codex skill for Verilog and SystemV
 
 RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or replace a user-selected or project-local verification flow. Its open-source EDA adapters are optional fallbacks and are never the primary Skill mechanism.
 
+In measured retrieval examples, RTL-ASS showed modest, task-specific efficiency improvements: relevant signed-width guidance reduced aggregate elapsed time by 2.27% across five pairs, although only two pairs were faster and token use increased. A separate one-pair source-file development smoke recorded 8.61% less elapsed time and 21.75% fewer input tokens. Both arms in these retrieval comparisons used the Skill; they measure the reference contribution, not native Codex versus RTL-ASS. Benefits vary by task, and some comparisons cost more. See [measured effects and scope](docs/evaluation.md#measured-effects-and-scope), including the source-file smoke's pending corrected-grader replay.
+
 ## 1.3 capabilities
 
 - Retrieval-first use of explicit SQLite/FTS5 namespaces, immutable receipts, calibrated lifecycle state, provenance, license metadata, RTL/TB/assertion roles, and negative evidence.
@@ -114,7 +116,7 @@ python3 -m build
 twine check dist/*.whl dist/*.tar.gz
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md). Reviewed results include the [six-class Codex workflow audit](evals/results/2026-09-01-codex-multitask-workflow-audit.md), the historical raw-pack [v1.3.0 retrieval instrumentation ablation](evals/results/2026-09-03-v1.3.0-retrieval-ablation.md), and the first [calibrated retrieval-first development smokes](evals/results/2026-09-04-calibrated-retrieval-smokes.md). The calibrated smokes validate the corrected mechanism and retain one partial-application failure, but their one-pair samples do not establish general uplift or expected overhead. See the [v1.3.0 release notes](docs/releases/v1.3.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Measured effects, comparison baselines, and audit status are documented in [evaluation](docs/evaluation.md). Reviewed results include the [six-class Codex workflow audit](evals/results/2026-09-01-codex-multitask-workflow-audit.md), the [frozen causal retrieval campaign](evals/results/2026-09-05-frozen-causal-retrieval-campaign.md), and the [source-file development observation](evals/results/2026-09-05-file-application-smoke.md). Historical reports preserve their original results and interpretations; current summaries distinguish workflow improvements, task-specific efficiency, and remaining validation work. See the [v1.3.0 release notes](docs/releases/v1.3.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 
