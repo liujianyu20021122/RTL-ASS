@@ -1,16 +1,24 @@
 from __future__ import annotations
 
 import io
+import re
 import tarfile
 import tempfile
 import unittest
 import zipfile
 from pathlib import Path
 
-from tools.build_release_assets import VERSION, _validate_sdist, _validate_wheel, build_assets
+from tools.build_release_assets import ROOT, SKILL_FILES, VERSION, _validate_sdist, _validate_wheel, build_assets
 
 
 class ReleaseAssetTests(unittest.TestCase):
+    def test_skill_archive_includes_every_reference_linked_by_entrypoint(self) -> None:
+        entrypoint = (ROOT / ".agents/skills/rtl-ass/SKILL.md").read_text(encoding="utf-8")
+        linked_references = set(re.findall(r"\]\((references/[^)]+)\)", entrypoint))
+
+        self.assertTrue(linked_references)
+        self.assertLessEqual(linked_references, set(SKILL_FILES))
+
     def test_fake_distributions_are_rejected_before_auxiliary_assets_are_created(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)

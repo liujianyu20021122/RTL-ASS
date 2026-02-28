@@ -14,6 +14,7 @@ All notable changes use semantic versioning.
 - Replaced substring-based EDA command classification with parsed helper subcommands and exact tool executables, preventing log-inspection paths from becoming false post-ready evidence findings.
 - Made Verilator binary simulation retain warnings as evidence without treating warning-only compilations as fatal; real compile errors and nonzero simulations still fail.
 - Bound source-built OpenSTA's Flex header input across runner CMake versions, hash-locked the complete formal-driver Python runtime, selected explicit build tools, added job time limits, and added bounded public failure annotations without masking exit status.
+- Completed frozen five-pair product, relevant, and plausible-irrelevant signed-width controls; added treatment-aware workflow policy 1.4 so relevant cards require full inspection while auditable irrelevant hits may be rejected from bounded receipt metadata.
 
 ## 1.2.0 — 2026-09-01
 

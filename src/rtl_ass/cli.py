@@ -83,18 +83,23 @@ def _load_utf8_text(path: str, *, max_bytes: int = 2 * 1024 * 1024) -> str:
 
 def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     settings = settings or Settings()
-    parser = argparse.ArgumentParser(prog="rtl-ass", description="Open-source RTL support for Codex")
+    parser = argparse.ArgumentParser(prog="rtl-ass", description="Audited RTL knowledge retrieval for Codex")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     parser.add_argument("--config", help="strict UTF-8 TOML configuration file")
     commands = parser.add_subparsers(dest="command", required=True)
 
-    doctor = commands.add_parser("doctor", help="discover optional open-source RTL tools")
+    doctor = commands.add_parser("doctor", help="inventory optional fallback and discovery-only RTL tools")
     doctor.set_defaults(handler=_handle_doctor)
 
     inspect = commands.add_parser("inspect", help="inspect RTL sources without executing them")
     inspect.add_argument("path")
     inspect.add_argument("--max-source-bytes", type=int, default=settings.max_source_bytes)
     inspect.add_argument("--follow-symlinks", action=argparse.BooleanOptionalAction, default=settings.follow_symlinks)
+    inspect.add_argument(
+        "--summary",
+        action="store_true",
+        help="emit bounded aggregate metadata without the per-file arrays",
+    )
     inspect.add_argument("--json", action="store_true", help="retained for explicit machine-readable intent")
     inspect.set_defaults(handler=_handle_inspect)
 
@@ -116,7 +121,7 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     corpus_lock.add_argument("--output", required=True)
     corpus_lock.set_defaults(handler=_handle_corpus_lock)
 
-    verify = commands.add_parser("verify", help="run bounded open-source RTL evidence tools")
+    verify = commands.add_parser("verify", help="run explicitly selected or user-confirmed fallback evidence tools")
     verify_commands = verify.add_subparsers(dest="verify_command", required=True)
     plan = verify_commands.add_parser("plan", help="validate and hash a Codex-selected verification plan")
     plan.add_argument("path")
@@ -413,6 +418,7 @@ def _handle_inspect(args: argparse.Namespace) -> dict[str, Any]:
         args.path,
         max_source_bytes=args.max_source_bytes,
         follow_symlinks=args.follow_symlinks,
+        summary_only=args.summary,
     )
 
 

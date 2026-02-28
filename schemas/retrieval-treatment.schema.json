@@ -1,0 +1,84 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/retrieval-treatment.schema.json",
+  "title": "RTL-ASS retrieval evaluation treatment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "case_identity",
+    "treatment",
+    "record_content_hashes",
+    "query_concepts",
+    "decision_targets",
+    "plausible_overlap",
+    "applicability_claims",
+    "non_applicability_claims",
+    "contamination_review",
+    "reviewer",
+    "reviewed_at"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "case_identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["case_id", "prompt_hash", "fixture_hash", "hidden_grader_hash"],
+      "properties": {
+        "case_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "prompt_hash": {"$ref": "#/$defs/sha256"},
+        "fixture_hash": {"$ref": "#/$defs/sha256"},
+        "hidden_grader_hash": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "treatment": {"enum": ["relevant", "plausible-irrelevant"]},
+    "record_content_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/sha256"}
+    },
+    "query_concepts": {"$ref": "#/$defs/boundedStrings"},
+    "decision_targets": {"$ref": "#/$defs/boundedStrings"},
+    "plausible_overlap": {"$ref": "#/$defs/optionalBoundedStrings"},
+    "applicability_claims": {"$ref": "#/$defs/optionalBoundedStrings"},
+    "non_applicability_claims": {"$ref": "#/$defs/optionalBoundedStrings"},
+    "contamination_review": {
+      "const": "no-task-source-no-test-no-reference-no-patch-no-grader-output"
+    },
+    "reviewer": {"type": "string", "minLength": 1, "maxLength": 128},
+    "reviewed_at": {"type": "string", "format": "date-time"}
+  },
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "boundedStrings": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    },
+    "optionalBoundedStrings": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1, "maxLength": 512}
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"treatment": {"const": "relevant"}}},
+      "then": {"properties": {"applicability_claims": {"minItems": 1}}}
+    },
+    {
+      "if": {"properties": {"treatment": {"const": "plausible-irrelevant"}}},
+      "then": {
+        "properties": {
+          "plausible_overlap": {"minItems": 1},
+          "non_applicability_claims": {"minItems": 1}
+        }
+      }
+    }
+  ]
+}

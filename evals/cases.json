@@ -4,6 +4,14 @@
   "effectiveness_status": "not_evaluated",
   "cases": [
     {
+      "id": "packet-tag-skid",
+      "class": "file-reference-adaptation",
+      "prompt": "Implement a parameterized transformed packet stage with a registered ready boundary and auditable reference use.",
+      "required_evidence": ["lint", "simulation"],
+      "acceptance": ["transform and sideband preservation", "skid stability", "reset flush", "registered boundary", "full throughput", "file-bound knowledge use"],
+      "forbidden_shortcuts": ["claim reading as correct application", "use raw guidance", "omit provenance", "unresolved upstream module"]
+    },
+    {
       "id": "spec-ready-valid-register",
       "class": "spec-to-rtl",
       "prompt": "Implement a parameterized one-entry ready/valid register from the supplied behavioral contract and add a self-checking testbench.",

@@ -28,25 +28,34 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import canonical_json, hash_file
 from rtl_ass.kb.database import KnowledgeDatabase
-from rtl_ass.kb.gates import validate_run_evidence
+from rtl_ass.kb.gates import validate_run_evidence, validate_verification_gate
 from rtl_ass.kb.models import RecordRole, RecordStatus
-from rtl_ass.kb.packs import load_knowledge_pack
 from rtl_ass.kb.retrieval import build_retrieval_receipt, validate_retrieval_receipt
 from rtl_ass.tools import discover_tools
 from rtl_ass.waveform import validate_waveform_evidence
 
 if __package__:
+    from .knowledge_application import audit_application
+    from .retrieval_treatment import validate_retrieval_treatment
+    from .soc_workflow_cases import SOC_CASES, materialize_soc_case
     from .workflow_cases import CASES, WorkflowCase, get_case
 else:
     # Direct-file execution places evals/ rather than the repository root on
     # sys.path. Keep that supported because the documented audit command uses
     # this file directly; module execution continues to use the package import.
+    from knowledge_application import audit_application  # type: ignore[import-not-found,no-redef]
+    from retrieval_treatment import validate_retrieval_treatment  # type: ignore[import-not-found,no-redef]
+    from soc_workflow_cases import (  # type: ignore[import-not-found,no-redef]
+        SOC_CASES,
+        materialize_soc_case,
+    )
     from workflow_cases import CASES, WorkflowCase, get_case  # type: ignore[import-not-found,no-redef]
 
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = ROOT / ".agents" / "skills" / "rtl-ass"
 DEFAULT_CASE_ID = "repair-non-power-of-two-fifo"
 REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
+KNOWLEDGE_TREATMENT_ABLATIONS = frozenset({"product", "retrieval"})
 SOURCE_TREE_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
 OPEN_TOOL_COMMANDS = {
     "gtkwave": ("gtkwave", "fst2vcd"),
@@ -119,14 +128,20 @@ AGENT_RULES = """# Evaluation workspace
 
 Repair only the supplied RTL task. Do not access files outside this repository.
 Preserve the interface and latency contract, do not weaken tests, and use only open-source tools.
+When lint is required, do not demote warnings to force a zero exit status; resolve them unless the supplied
+repository policy contains an explicit reviewed waiver.
 Generated evidence may be written under artifacts/. Do not commit changes.
 """
 RETRIEVAL_AGENT_RULES = """
 An approved evaluation index is available at `.rtl-ass/eval.db` in namespace `eval:retrieval`.
-When relevant, use a bounded search with explicit `--match any --actor codex --output artifacts/rtl-ass/retrieval.json`, then inspect
-only selected returned records with `kb show <id> --include-content`. The index is advisory and may be empty.
+When relevant, search that namespace for `promoted` records first and then `verified` records only when no
+promoted result applies. Use explicit `--match any --limit 3 --actor codex --output <distinct-receipt>`, retain every
+receipt, and inspect at most three selected records with `kb show <id> --include-content`. Never use `raw` or
+`candidate` records as coding guidance. The index is advisory and may be empty.
+Do not invoke an RTL-ASS EDA adapter in this retrieval comparison. Preserve the task's direct or project-local
+open-source verification flow; adapter fallback authorization is evaluated separately.
 """
-RETRIEVAL_ABLATION_ROLES = frozenset({"design-pattern", "verification-pattern"})
+RETRIEVAL_ABLATION_ROLES = frozenset({"design-pattern", "verification-pattern", "rtl-design"})
 
 
 def _hash_tree(root: Path) -> str:
@@ -161,44 +176,128 @@ def _hash_files(paths: Iterable[Path]) -> str:
     return digest.hexdigest()
 
 
-def _validate_retrieval_ablation_pack(path: Path, case: WorkflowCase) -> dict[str, Any]:
-    """Reject direct task artifacts and require an explicit semantic contamination review."""
-    pack = load_knowledge_pack(path)
+def _validate_retrieval_ablation_database(path: Path, case: WorkflowCase) -> dict[str, Any]:
+    """Require a small audited database of calibrated, contamination-reviewed cards."""
+    if not path.is_file() or path.is_symlink():
+        raise RtlAssError("unsafe_retrieval_ablation", "retrieval database must be a regular file")
+    database = KnowledgeDatabase(path)
+    audit = database.verify_audit_chain()
+    if not audit["valid"]:
+        raise RtlAssError("unsafe_retrieval_ablation", "retrieval database audit chain is invalid")
     case_hashes = {
         hash_file(candidate)
         for root in (case.public_fixture, case.public_fixture.parent / "private")
         for candidate in root.rglob("*")
         if candidate.is_file() and not candidate.is_symlink()
     }
-    if not 1 <= len(pack["records"]) <= 3:
-        raise RtlAssError("unsafe_retrieval_ablation", "retrieval ablation packs require 1-3 bounded records")
+    try:
+        with contextlib.closing(sqlite3.connect(f"{path.resolve().as_uri()}?mode=ro", uri=True)) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT id, namespace, role, status, content_hash, source_path,
+                       license_status, metadata_json
+                FROM records
+                ORDER BY id
+                """
+            ).fetchall()
+    except sqlite3.Error as exc:
+        raise RtlAssError("unsafe_retrieval_ablation", "retrieval database cannot be inspected") from exc
+
+    cards = [row for row in rows if row["role"] in RETRIEVAL_ABLATION_ROLES]
+    other_records = [row for row in rows if row["role"] not in RETRIEVAL_ABLATION_ROLES]
+    if any(row["namespace"] != "eval:retrieval" for row in rows):
+        raise RtlAssError("unsafe_retrieval_ablation", "retrieval database contains another namespace")
+    if not 1 <= len(cards) <= 3:
+        raise RtlAssError("unsafe_retrieval_ablation", "retrieval database requires 1-3 calibrated cards")
+    if any(row["role"] != "tool-evidence" or row["status"] != "candidate" for row in other_records):
+        raise RtlAssError(
+            "unsafe_retrieval_ablation",
+            "retrieval database may contain only calibrated cards and candidate tool-evidence records",
+        )
     reviewed_hashes: list[str] = []
-    for record in pack["records"]:
+    record_ids: list[str] = []
+    statuses: list[str] = []
+    for record in cards:
+        try:
+            metadata = json.loads(record["metadata_json"])
+        except (json.JSONDecodeError, TypeError) as exc:
+            raise RtlAssError("unsafe_retrieval_ablation", "retrieval card metadata is invalid") from exc
         if (
-            record["role"] not in RETRIEVAL_ABLATION_ROLES
+            record["namespace"] != "eval:retrieval"
+            or record["status"] not in {"verified", "promoted"}
+            or record["license_status"] != "known"
             or record["content_hash"] in case_hashes
             or record["source_path"].startswith("evals/workflow_cases/")
-            or record["metadata"].get("contamination_review")
-            != "no-task-source-no-test-no-reference-no-patch-no-grader-output"
+            or not isinstance(metadata, dict)
+            or metadata.get("contamination_review") != "no-task-source-no-test-no-reference-no-patch-no-grader-output"
         ):
             raise RtlAssError(
                 "unsafe_retrieval_ablation",
-                "retrieval pack contains an unreviewed or task-identical record",
-                {"record": record["key"]},
+                "retrieval database contains an uncalibrated, unreviewed, or task-identical card",
+                {"record": record["id"]},
             )
+        stored = database.get_record(record["id"])
+        verification = stored.get("verification")
+        if not isinstance(verification, dict):
+            raise RtlAssError("unsafe_retrieval_ablation", "calibrated card is missing its verification gate")
+        validate_verification_gate(
+            verification,
+            record["content_hash"],
+            verification.get("required_kinds", []),
+        )
         reviewed_hashes.append(record["content_hash"])
+        record_ids.append(record["id"])
+        statuses.append(record["status"])
     return {
         "status": "pass",
-        "policy_version": "1.0",
-        "pack_hash": pack["pack_hash"],
-        "record_count": len(pack["records"]),
+        "policy_version": "2.0",
+        "database_hash": hash_file(path),
+        "audit_chain": audit,
+        "record_count": len(cards),
+        "record_ids": record_ids,
+        "record_statuses": statuses,
         "record_content_hashes": reviewed_hashes,
         "case_artifact_hash_count": len(case_hashes),
         "direct_hash_overlap": False,
         "allowed_roles": sorted(RETRIEVAL_ABLATION_ROLES),
         "semantic_review_marker_required": True,
-        "boundary": "hash separation is automatic; semantic absence of answer content is an explicit human review assertion",
+        "boundary": (
+            "the audit chain and calibrated lifecycle are machine-checked; semantic absence of answer content remains "
+            "an explicit human review assertion"
+        ),
     }
+
+
+def _retrieval_case_identity(case: WorkflowCase) -> dict[str, str]:
+    return {
+        "case_id": case.identifier,
+        "prompt_hash": hashlib.sha256(case.prompt.encode()).hexdigest(),
+        "fixture_hash": _hash_tree(case.public_fixture),
+        "hidden_grader_hash": _hash_tree(case.public_fixture.parent / "private"),
+    }
+
+
+def _load_retrieval_treatment(
+    path: Path,
+    *,
+    case: WorkflowCase,
+    database_audit: Mapping[str, Any],
+) -> dict[str, Any]:
+    if not path.is_file() or path.is_symlink():
+        raise RtlAssError("invalid_retrieval_treatment", "retrieval treatment must be a regular file")
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RtlAssError("invalid_retrieval_treatment", "retrieval treatment must be one UTF-8 JSON object") from exc
+    hashes = database_audit.get("record_content_hashes")
+    if not isinstance(hashes, list) or not all(isinstance(item, str) for item in hashes):
+        raise RtlAssError("invalid_retrieval_treatment", "retrieval database audit is missing card identities")
+    return validate_retrieval_treatment(
+        value,
+        expected_case_identity=_retrieval_case_identity(case),
+        calibrated_record_hashes=hashes,
+    )
 
 
 def _run(command: list[str], *, cwd: Path, timeout: int = 60) -> subprocess.CompletedProcess[str]:
@@ -227,23 +326,26 @@ def _prepare_workspace(
     *,
     skill_root: Path = SKILL_ROOT,
     ablation: str = "skill",
-    retrieval_pack: Path | None = None,
+    retrieval_database: Path | None = None,
 ) -> dict[str, str]:
     selected_case = case or get_case(DEFAULT_CASE_ID)
     if condition not in {"off", "on"}:
         raise ValueError(f"unknown evaluation condition: {condition}")
     if workspace.exists():
         raise RuntimeError(f"refusing to reuse evaluation workspace: {workspace}")
-    if ablation not in {"skill", "retrieval"}:
+    if ablation not in {"skill", *KNOWLEDGE_TREATMENT_ABLATIONS}:
         raise ValueError(f"unknown ablation: {ablation}")
-    if (ablation == "retrieval") != (retrieval_pack is not None):
-        raise ValueError("retrieval ablation requires exactly one explicit knowledge pack")
+    if (ablation in KNOWLEDGE_TREATMENT_ABLATIONS) != (retrieval_database is not None):
+        raise ValueError("knowledge treatment requires exactly one calibrated knowledge database")
+    if retrieval_database is not None:
+        _validate_retrieval_ablation_database(retrieval_database, selected_case)
     shutil.copytree(selected_case.public_fixture, workspace)
     initial = {
         path.relative_to(workspace).as_posix(): hash_file(path)
         for path in sorted(item for item in workspace.rglob("*") if item.is_file() and not item.is_symlink())
     }
-    agent_rules = AGENT_RULES + (RETRIEVAL_AGENT_RULES if ablation == "retrieval" else "")
+    treatment_visible = ablation == "retrieval" or (ablation == "product" and condition == "on")
+    agent_rules = AGENT_RULES + (RETRIEVAL_AGENT_RULES if treatment_visible else "")
     (workspace / "AGENTS.md").write_text(agent_rules, encoding="utf-8")
     if condition == "on" or ablation == "retrieval":
         destination = workspace / ".agents" / "skills" / "rtl-ass"
@@ -258,15 +360,13 @@ def _prepare_workspace(
                 workspace / "src" / "rtl_ass",
                 ignore=SOURCE_TREE_IGNORE,
             )
-    if ablation == "retrieval":
-        database = KnowledgeDatabase(workspace / ".rtl-ass" / "eval.db")
-        database.initialize(actor="evaluation-harness")
-        if condition == "on" and retrieval_pack is not None:
-            database.import_pack(
-                retrieval_pack,
-                namespace="eval:retrieval",
-                actor="evaluation-harness",
-            )
+    if treatment_visible:
+        database_path = workspace / ".rtl-ass" / "eval.db"
+        database_path.parent.mkdir(parents=True, exist_ok=True)
+        if condition == "on" and retrieval_database is not None:
+            shutil.copyfile(retrieval_database, database_path)
+        else:
+            KnowledgeDatabase(database_path).initialize(actor="evaluation-harness")
     commands = (
         ["git", "init", "-b", "main"],
         ["git", "config", "user.name", "RTL-ASS Eval"],
@@ -324,7 +424,8 @@ def _command_kinds(command: str) -> set[str]:
         "equiv": "equivalence",
         "sta": "sta",
     }
-    for segment in _expanded_command_segments(command):
+    for raw_segment in _expanded_command_segments(command):
+        segment = _normalized_command_segment(raw_segment)
         if not segment or any(argument in {"--help", "-h"} for argument in segment[1:]):
             continue
         helper_arguments = _rtl_ass_arguments(segment)
@@ -369,8 +470,33 @@ def _command_kinds(command: str) -> set[str]:
     return kinds
 
 
+def _rtl_ass_eda_adapter_kinds(command: str) -> set[str]:
+    """Return external EDA classes requested through RTL-ASS, including failed attempts."""
+    verify_kinds = {
+        "lint": "lint",
+        "simulate": "simulation",
+        "formal": "formal",
+        "synth": "synthesis",
+        "equiv": "equivalence",
+        "sta": "sta",
+    }
+    kinds: set[str] = set()
+    for segment in _expanded_command_segments(command):
+        arguments = _rtl_ass_arguments(segment)
+        if arguments is None or len(arguments) < 2:
+            continue
+        if arguments[0] == "verify" and arguments[1] in verify_kinds:
+            kinds.add(verify_kinds[arguments[1]])
+        elif arguments[:2] in (["wave", "query"], ["wave", "diff"]):
+            waveform = next((value for value in arguments[2:] if not value.startswith("-")), "")
+            if Path(waveform).suffix.lower() == ".fst":
+                kinds.add("waveform")
+    return kinds
+
+
 def _command_segments(command: str) -> list[list[str]]:
-    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|\n")
+    lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     lexer.commenters = ""
     try:
@@ -380,7 +506,7 @@ def _command_segments(command: str) -> list[list[str]]:
     segments: list[list[str]] = []
     current: list[str] = []
     for token in tokens:
-        if token and set(token).issubset({";", "&", "|"}):
+        if token and set(token).issubset({";", "&", "|", "\n"}):
             if current:
                 segments.append(current)
                 current = []
@@ -403,13 +529,41 @@ def _expanded_command_segments(command: str) -> list[list[str]]:
     return segments
 
 
+def _normalized_command_segment(segment: Sequence[str]) -> list[str]:
+    """Remove shell environment prefixes without changing the invoked argument vector."""
+    result = list(segment)
+    while result and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", result[0], flags=re.DOTALL):
+        result.pop(0)
+    if result and Path(result[0]).name == "env":
+        result.pop(0)
+        while result:
+            if result[0] == "--":
+                result.pop(0)
+                break
+            if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*=.*", result[0], flags=re.DOTALL):
+                result.pop(0)
+                continue
+            if result[0] in {"-i", "--ignore-environment"}:
+                result.pop(0)
+                continue
+            if result[0] in {"-u", "--unset"} and len(result) >= 2:
+                del result[:2]
+                continue
+            if result[0].startswith("--unset="):
+                result.pop(0)
+                continue
+            break
+    return result
+
+
 def _skill_command_signals(command: str, *, matching_skill: bool) -> set[str]:
     if not matching_skill:
         return set()
     signals: set[str] = set()
     readers = {"awk", "bat", "cat", "grep", "head", "less", "more", "nl", "rg", "sed", "tail"}
     segments = _expanded_command_segments(command)
-    for segment in segments:
+    for raw_segment in segments:
+        segment = _normalized_command_segment(raw_segment)
         if not segment:
             continue
         executable = Path(segment[0]).name
@@ -437,7 +591,8 @@ def _skill_command_signals(command: str, *, matching_skill: bool) -> set[str]:
 
 def _command_policy_findings(command: str) -> list[dict[str, str]]:
     findings: list[dict[str, str]] = []
-    for segment in _expanded_command_segments(command):
+    for raw_segment in _expanded_command_segments(command):
+        segment = _normalized_command_segment(raw_segment)
         if not segment:
             continue
         executable = Path(segment[0]).name.lower()
@@ -485,8 +640,21 @@ def _workflow_audit(
     grade: Mapping[str, Any],
     *,
     ablation: str = "skill",
+    workflow_mechanisms: Mapping[str, Any] | None = None,
+    knowledge_retrieval: Mapping[str, Any] | None = None,
+    retrieval_treatment: Mapping[str, Any] | None = None,
+    knowledge_application: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     violations: list[dict[str, Any]] = []
+    if case.requires_knowledge_usage:
+        if knowledge_application is None or knowledge_application.get("status") != "audited":
+            violations.append({"reason": "knowledge-use-declaration-missing-or-invalid"})
+        elif any(item.get("outcome") == "unsupported" for item in knowledge_application.get("uses", [])):
+            violations.append({"reason": "knowledge-use-claim-unsupported"})
+        elif knowledge_application.get("unreported_read_ids"):
+            violations.append({"reason": "knowledge-read-missing-use-declaration"})
+    rtl_ass_eda_adapter_commands: list[dict[str, Any]] = []
+    lint_warning_demotion_commands: list[dict[str, Any]] = []
     commands = trace.get("commands", [])
     if isinstance(commands, list):
         for index, item in enumerate(commands):
@@ -494,23 +662,94 @@ def _workflow_audit(
                 continue
             for finding in _command_policy_findings(item["command"]):
                 violations.append({"command_index": index, **finding})
+            adapter_kinds = sorted(_rtl_ass_eda_adapter_kinds(item["command"]))
+            if adapter_kinds:
+                rtl_ass_eda_adapter_commands.append(
+                    {
+                        "command_index": index,
+                        "evidence_kinds": adapter_kinds,
+                        "status": item.get("status"),
+                        "exit_code": item.get("exit_code"),
+                    }
+                )
+            if "lint" in case.required_evidence:
+                for segment in _expanded_command_segments(item["command"]):
+                    normalized = _normalized_command_segment(segment)
+                    if (
+                        normalized
+                        and Path(normalized[0]).name == "verilator"
+                        and "--lint-only" in normalized[1:]
+                        and {"-Wno-fatal", "--Wno-fatal"}.intersection(normalized[1:])
+                    ):
+                        lint_warning_demotion_commands.append(
+                            {
+                                "command_index": index,
+                                "status": item.get("status"),
+                                "exit_code": item.get("exit_code"),
+                            }
+                        )
+                        break
+    if lint_warning_demotion_commands:
+        violations.append(
+            {
+                "reason": "required-lint-warning-demotion-forbidden",
+                "command_indices": [item["command_index"] for item in lint_warning_demotion_commands],
+            }
+        )
+    if ablation in KNOWLEDGE_TREATMENT_ABLATIONS and rtl_ass_eda_adapter_commands:
+        comparison = "retrieval-ablation" if ablation == "retrieval" else "product-comparison"
+        violations.append(
+            {
+                "reason": f"rtl-ass-eda-adapter-forbidden-in-{comparison}",
+                "command_indices": [item["command_index"] for item in rtl_ass_eda_adapter_commands],
+            }
+        )
+    if ablation in KNOWLEDGE_TREATMENT_ABLATIONS and knowledge_retrieval is not None:
+        if ablation == "retrieval" and condition == "off":
+            if int(knowledge_retrieval.get("valid_receipt_count", 0)) == 0:
+                violations.append({"reason": "empty-control-retrieval-receipt-missing"})
+        elif condition == "on":
+            if int(knowledge_retrieval.get("calibrated_receipt_count", 0)) == 0:
+                violations.append({"reason": "calibrated-retrieval-receipt-missing"})
+            treatment_label = retrieval_treatment.get("treatment") if retrieval_treatment is not None else None
+            calibrated_inspection_required = treatment_label != "plausible-irrelevant"
+            if calibrated_inspection_required and not knowledge_retrieval.get("calibrated_inspected_result_ids"):
+                violations.append({"reason": "calibrated-retrieval-result-not-inspected"})
     skill_signals = trace.get("skill_signals", [])
-    if ablation == "skill" and condition == "off" and skill_signals:
+    if ablation in {"skill", "product"} and condition == "off" and skill_signals:
         violations.append({"reason": "skill-visible-in-off-condition"})
     protected = grade.get("protected_files_unchanged")
     if protected is False:
         violations.append({"reason": "protected-fixture-changed"})
     if trace.get("invalid_jsonl_lines"):
         violations.append({"reason": "invalid-trace-jsonl"})
+    skill_available = ablation == "retrieval" or condition == "on"
+    mechanisms = workflow_mechanisms or {}
+    missing_mechanisms = sorted(
+        mechanism for mechanism in case.skill_required_mechanisms if skill_available and not mechanisms.get(mechanism)
+    )
+    for mechanism in missing_mechanisms:
+        violations.append({"reason": "required-skill-mechanism-missing", "mechanism": mechanism})
     executed = {value for value in trace.get("executed_evidence_kinds", []) if isinstance(value, str)}
     extra_evidence = sorted(executed - case.allowed_evidence)
     return {
-        "policy_version": "1.0",
+        "policy_version": "1.6",
         "condition": condition,
         "ablation": ablation,
+        "retrieval_treatment": (retrieval_treatment.get("treatment") if retrieval_treatment is not None else None),
+        "calibrated_inspection_required": (
+            condition == "on"
+            and ablation in KNOWLEDGE_TREATMENT_ABLATIONS
+            and (retrieval_treatment is None or retrieval_treatment.get("treatment") != "plausible-irrelevant")
+        ),
         "skill_activated": bool(skill_signals),
         "allowed_evidence": sorted(case.allowed_evidence),
         "required_evidence": sorted(case.required_evidence),
+        "required_skill_mechanisms": sorted(case.skill_required_mechanisms),
+        "missing_required_skill_mechanisms": missing_mechanisms,
+        "rtl_ass_eda_adapter_policy": ("forbidden" if ablation in KNOWLEDGE_TREATMENT_ABLATIONS else "case-prompt"),
+        "rtl_ass_eda_adapter_commands": rtl_ass_eda_adapter_commands,
+        "lint_warning_demotion_commands": lint_warning_demotion_commands,
         "executed_evidence_outside_case_policy": extra_evidence,
         "violations": violations,
         "compliant": not violations and not extra_evidence,
@@ -543,8 +782,17 @@ def _workflow_efficiency(trace: Mapping[str, Any], evidence: Sequence[Mapping[st
     commands = trace.get("commands")
     ready_gate_index: int | None = None
     post_ready: list[dict[str, Any]] = []
+    failed_rtl_ass_entrypoints: list[dict[str, Any]] = []
     if isinstance(commands, list):
         for index, item in enumerate(commands):
+            if (
+                isinstance(item, dict)
+                and item.get("status") != "completed"
+                and item.get("exit_code") == 127
+                and isinstance(item.get("command"), str)
+                and any(_is_bare_rtl_ass_invocation(segment) for segment in _expanded_command_segments(item["command"]))
+            ):
+                failed_rtl_ass_entrypoints.append({"command_index": index, "exit_code": 127})
             if ready_gate_index is None and _successful_ready_gate(item):
                 ready_gate_index = index
                 continue
@@ -554,15 +802,109 @@ def _workflow_efficiency(trace: Mapping[str, Any], evidence: Sequence[Mapping[st
             if kinds:
                 post_ready.append({"command_index": index, "evidence_kinds": kinds})
     return {
-        "policy_version": "1.0",
+        "policy_version": "1.1",
         "duplicate_evidence_identities": duplicates,
         "redundant_evidence_execution_count": sum(len(item["paths"]) - 1 for item in duplicates),
         "successful_ready_gate_command_index": ready_gate_index,
         "post_ready_eda_commands": post_ready,
-        "efficient": not duplicates and not post_ready,
+        "failed_rtl_ass_entrypoint_commands": failed_rtl_ass_entrypoints,
+        "efficient": not duplicates and not post_ready and not failed_rtl_ass_entrypoints,
         "interpretation": (
             "efficiency diagnostics do not change candidate correctness, evidence validity, workflow compliance, "
             "or infrastructure attribution"
+        ),
+    }
+
+
+def _workflow_mechanisms(trace: Mapping[str, Any], *, tracked_paths: Iterable[str] = ()) -> dict[str, Any]:
+    """Summarize pre-registered, observable workflow mechanisms without inferring reasoning."""
+    commands = trace.get("commands")
+    command_items = [item for item in commands if isinstance(item, dict)] if isinstance(commands, list) else []
+    first_change = trace.get("first_file_change_event_index")
+    first_change_index = first_change if isinstance(first_change, int) else None
+    tracked = set(tracked_paths)
+    tracked_change_events = []
+    raw_change_events = trace.get("file_change_events")
+    if isinstance(raw_change_events, list):
+        for item in raw_change_events:
+            if not isinstance(item, dict):
+                continue
+            path = item.get("path")
+            event_index = item.get("event_index")
+            if not isinstance(path, str) or not isinstance(event_index, int):
+                continue
+            relative = path.removeprefix("$WORKSPACE/")
+            if relative in tracked:
+                tracked_change_events.append(event_index)
+    first_tracked_change_index = min(tracked_change_events, default=None)
+    successful_evidence_events: list[int] = []
+    bounded_summary_events: list[int] = []
+    unbounded_inspect_events: list[int] = []
+    manifest_events: list[int] = []
+    plan_events: list[int] = []
+    failed_commands: dict[str, list[int]] = {}
+    successful_commands: dict[str, list[int]] = {}
+
+    for command_index, item in enumerate(command_items):
+        command = item.get("command")
+        event_index = item.get("event_index")
+        if not isinstance(command, str) or not isinstance(event_index, int):
+            continue
+        succeeded = item.get("status") == "completed" and item.get("exit_code") == 0
+        target = successful_commands if succeeded else failed_commands
+        target.setdefault(command, []).append(command_index)
+        if not succeeded:
+            continue
+        if _command_kinds(command):
+            successful_evidence_events.append(event_index)
+        for segment in _expanded_command_segments(command):
+            arguments = _rtl_ass_arguments(segment)
+            if arguments is None:
+                continue
+            if arguments[:1] == ["inspect"]:
+                if "--summary" in arguments[1:]:
+                    bounded_summary_events.append(event_index)
+                else:
+                    unbounded_inspect_events.append(event_index)
+            elif arguments[:2] == ["manifest", "validate"]:
+                manifest_events.append(event_index)
+            elif arguments[:2] == ["verify", "plan"]:
+                plan_events.append(event_index)
+
+    recovered_exact_retries = [
+        {
+            "command": command,
+            "failed_command_indexes": indexes,
+            "successful_command_indexes": successful_commands[command],
+        }
+        for command, indexes in sorted(failed_commands.items())
+        if command in successful_commands and max(successful_commands[command]) > min(indexes)
+    ]
+
+    def before_tracked_change(events: Sequence[int]) -> bool:
+        return first_tracked_change_index is not None and any(index < first_tracked_change_index for index in events)
+
+    return {
+        "policy_version": "1.0",
+        "first_file_change_event_index": first_change_index,
+        "first_tracked_file_change_event_index": first_tracked_change_index,
+        "first_successful_evidence_event_index": min(successful_evidence_events, default=None),
+        "bounded_project_summary": bool(bounded_summary_events),
+        "bounded_project_summary_before_first_tracked_change": before_tracked_change(bounded_summary_events),
+        "unbounded_project_inspection": bool(unbounded_inspect_events),
+        "unbounded_project_inspection_before_first_tracked_change": before_tracked_change(unbounded_inspect_events),
+        "manifest_validated": bool(manifest_events),
+        "manifest_validated_before_first_evidence": bool(
+            manifest_events and successful_evidence_events and min(manifest_events) < min(successful_evidence_events)
+        ),
+        "verification_plan_validated": bool(plan_events),
+        "baseline_evidence_before_first_tracked_change": before_tracked_change(successful_evidence_events),
+        "failed_command_count": sum(len(indexes) for indexes in failed_commands.values()),
+        "recovered_exact_retry_count": len(recovered_exact_retries),
+        "recovered_exact_retries": recovered_exact_retries,
+        "boundary": (
+            "derived only from sanitized command completion and file-change ordering; it does not retain or infer "
+            "chain-of-thought, command intent, or causality"
         ),
     }
 
@@ -587,10 +929,11 @@ def _successful_ready_gate(item: object) -> bool:
 
 
 def _rtl_ass_arguments(segment: Sequence[str]) -> list[str] | None:
-    if not segment:
+    normalized = _normalized_command_segment(segment)
+    if not normalized:
         return None
-    executable = Path(segment[0]).name
-    arguments = list(segment[1:])
+    executable = Path(normalized[0]).name
+    arguments = normalized[1:]
     if executable == "rtl-ass":
         return arguments
     if executable not in {"python", "python3"}:
@@ -601,6 +944,11 @@ def _rtl_ass_arguments(segment: Sequence[str]) -> list[str] | None:
     if arguments[:2] == ["-m", "rtl_ass"]:
         return arguments[2:]
     return None
+
+
+def _is_bare_rtl_ass_invocation(segment: Sequence[str]) -> bool:
+    normalized = _normalized_command_segment(segment)
+    return bool(normalized) and Path(normalized[0]).name == "rtl-ass"
 
 
 def _workspace_retrieval(
@@ -642,6 +990,8 @@ def _workspace_retrieval(
 
     receipts: list[dict[str, Any]] = []
     returned: set[str] = set()
+    calibrated_returned: set[str] = set()
+    returned_records: dict[str, dict[str, Any]] = {}
     for path in sorted(workspace.rglob("*.json")):
         if path.is_symlink() or not path.is_file():
             continue
@@ -664,12 +1014,42 @@ def _workspace_retrieval(
         raw_results = receipt.get("results")
         results = raw_results if isinstance(raw_results, list) else []
         result_ids: list[str] = []
+        result_statuses: list[str] = []
         for item in results:
             record_id = item.get("id") if isinstance(item, dict) else None
             if isinstance(record_id, str):
                 result_ids.append(record_id)
+            record_status = item.get("status") if isinstance(item, dict) else None
+            if isinstance(record_status, str):
+                result_statuses.append(record_status)
+        filters = receipt.get("filters")
+        filter_status = filters.get("status") if isinstance(filters, dict) else None
+        calibrated = (
+            reason is None
+            and bool(results)
+            and filter_status in {"verified", "promoted"}
+            and len(result_statuses) == len(results)
+            and all(status in {"verified", "promoted"} for status in result_statuses)
+        )
         if reason is None:
             returned.update(result_ids)
+            for item in results:
+                returned_records[item["id"]] = {
+                    key: item[key]
+                    for key in (
+                        "id",
+                        "content_hash",
+                        "role",
+                        "status",
+                        "source_uri",
+                        "source_revision",
+                        "source_path",
+                        "license_spdx",
+                        "namespace",
+                    )
+                }
+        if calibrated:
+            calibrated_returned.update(result_ids)
         content_hashes = [
             item.get("content_hash")
             for item in results
@@ -686,17 +1066,32 @@ def _workspace_retrieval(
                 "limit": receipt.get("limit"),
                 "result_count": receipt.get("result_count"),
                 "result_ids": result_ids,
+                "result_statuses": result_statuses,
                 "result_content_hashes": content_hashes,
+                "coding_guidance_eligible": calibrated,
             }
         )
     inspected_returned = returned & inspected
+    calibrated_inspected = calibrated_returned & inspected
     return {
-        "policy_version": "1.0",
+        "policy_version": "2.2",
         "database_integrity": database_integrity,
         "receipts": receipts,
         "valid_receipt_count": sum(bool(item["strictly_valid"]) for item in receipts),
+        "calibrated_receipt_count": sum(bool(item["coding_guidance_eligible"]) for item in receipts),
         "returned_result_ids": sorted(returned),
+        "returned_records": [returned_records[key] for key in sorted(returned_records)],
+        "content_bound_read_ids": sorted(
+            {
+                item["id"]
+                for item in trace.get("knowledge_reads", [])
+                if item["id"] in returned_records
+                and item["content_hash"] == returned_records[item["id"]]["content_hash"]
+            }
+        ),
         "inspected_result_ids": sorted(inspected_returned),
+        "calibrated_returned_result_ids": sorted(calibrated_returned),
+        "calibrated_inspected_result_ids": sorted(calibrated_inspected),
         "uninspected_result_ids": sorted(returned - inspected),
         "inspected_outside_valid_receipts": sorted(inspected - returned),
         "interpretation": (
@@ -777,7 +1172,9 @@ def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> 
     event_counts: Counter[str] = Counter()
     item_counts: Counter[str] = Counter()
     commands: list[dict[str, Any]] = []
+    knowledge_reads: list[dict[str, Any]] = []
     file_changes: list[dict[str, Any]] = []
+    file_change_events: list[dict[str, Any]] = []
     final_messages: list[str] = []
     usage: dict[str, Any] = {}
     thread_ids: list[str] = []
@@ -792,7 +1189,8 @@ def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> 
     invalid_lines = 0
     network_error_count = 0
     terminal_network_error = False
-    for line in path.read_text(encoding="utf-8").splitlines():
+    first_file_change_event_index: int | None = None
+    for event_index, line in enumerate(path.read_text(encoding="utf-8").splitlines()):
         try:
             event = json.loads(line)
         except json.JSONDecodeError:
@@ -832,6 +1230,15 @@ def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> 
                             "kind": change.get("kind"),
                         }
                     )
+                    file_change_events.append(
+                        {
+                            "path": _redact(change["path"], workspace),
+                            "kind": change.get("kind"),
+                            "event_index": event_index,
+                        }
+                    )
+                    if first_file_change_event_index is None:
+                        first_file_change_event_index = event_index
         if item_type != "command_execution" or event_type != "item.completed":
             continue
         command = item.get("command")
@@ -844,10 +1251,31 @@ def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> 
                 "command": redacted,
                 "status": item.get("status"),
                 "exit_code": exit_code if isinstance(exit_code, int) else None,
+                "event_index": event_index,
             }
         )
         command_succeeded = item.get("status") == "completed" and exit_code == 0
         if command_succeeded:
+            # Retain only identities of complete, hash-matching content outputs, not source or reasoning text.
+            for segment in _expanded_command_segments(command):
+                arguments = _rtl_ass_arguments(segment)
+                if arguments is None or len(arguments) < 4 or arguments[:2] != ["kb", "show"]:
+                    continue
+                if "--include-content" not in arguments[3:]:
+                    continue
+                try:
+                    output = json.loads(item.get("aggregated_output", ""))
+                except (ValueError, TypeError):
+                    continue
+                if (
+                    isinstance(output, dict)
+                    and output.get("id") == arguments[2]
+                    and isinstance(output.get("content"), str)
+                    and hashlib.sha256(output["content"].encode("utf-8")).hexdigest() == output.get("content_hash")
+                ):
+                    knowledge_reads.append(
+                        {"id": output["id"], "content_hash": output["content_hash"], "event_index": event_index}
+                    )
             executed_kinds.update(_command_kinds(command))
             skill_signals.update(_skill_command_signals(command, matching_skill=matching_skill))
     return {
@@ -859,7 +1287,10 @@ def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> 
         "terminal_network_error": terminal_network_error,
         "thread_id_hashes": thread_ids,
         "commands": commands,
+        "knowledge_reads": knowledge_reads,
         "file_changes": file_changes,
+        "file_change_events": file_change_events,
+        "first_file_change_event_index": first_file_change_event_index,
         "executed_evidence_kinds": sorted(executed_kinds),
         "skill_signals": sorted(skill_signals),
         "agent_messages": final_messages,
@@ -1556,7 +1987,8 @@ def _run_one(
     case: WorkflowCase,
     skill_root: Path,
     ablation: str,
-    retrieval_pack: Path | None,
+    source_retrieval_database: Path | None,
+    retrieval_treatment: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     run_id = f"pair-{replicate:02d}-{condition}"
     run_root = output / "runs" / run_id
@@ -1568,10 +2000,14 @@ def _run_one(
         case,
         skill_root=skill_root,
         ablation=ablation,
-        retrieval_pack=retrieval_pack,
+        retrieval_database=source_retrieval_database,
     )
-    retrieval_database = workspace / ".rtl-ass" / "eval.db"
-    expected_retrieval_database_hash = hash_file(retrieval_database) if ablation == "retrieval" else None
+    workspace_retrieval_database = workspace / ".rtl-ass" / "eval.db"
+    expected_retrieval_database_hash = (
+        hash_file(workspace_retrieval_database)
+        if (ablation == "retrieval" or (ablation == "product" and condition == "on"))
+        else None
+    )
     trace_path = run_root / "trace.raw.jsonl"
     stderr_path = run_root / "codex.stderr.txt"
     environment = os.environ.copy()
@@ -1755,13 +2191,25 @@ def _run_one(
         if isinstance(expected_subjects, dict)
         else []
     )
-    workflow_audit = _workflow_audit(trace, case, condition, grade, ablation=ablation)
-    workflow_efficiency = _workflow_efficiency(trace, agent_evidence)
+    workflow_mechanisms = _workflow_mechanisms(trace, tracked_paths=initial)
     knowledge_retrieval = _workspace_retrieval(
         workspace,
         trace,
         expected_database_hash=expected_retrieval_database_hash,
     )
+    knowledge_application = audit_application(workspace, knowledge_retrieval, grade, retrieval_treatment)
+    workflow_audit = _workflow_audit(
+        trace,
+        case,
+        condition,
+        grade,
+        ablation=ablation,
+        workflow_mechanisms=workflow_mechanisms,
+        knowledge_retrieval=knowledge_retrieval,
+        retrieval_treatment=retrieval_treatment,
+        knowledge_application=knowledge_application,
+    )
+    workflow_efficiency = _workflow_efficiency(trace, agent_evidence)
     result = {
         "schema_version": "1.0",
         "run_id": run_id,
@@ -1769,6 +2217,7 @@ def _run_one(
         "replicate": replicate,
         "condition": condition,
         "ablation": ablation,
+        "retrieval_treatment": retrieval_treatment["treatment"] if retrieval_treatment is not None else None,
         "started_at": started_at,
         "finished_at": finished_at,
         "duration_seconds": duration_seconds,
@@ -1808,7 +2257,9 @@ def _run_one(
         "current_passed_evidence_kinds": current_passed_evidence_kinds,
         "workflow_audit": workflow_audit,
         "workflow_efficiency": workflow_efficiency,
+        "workflow_mechanisms": workflow_mechanisms,
         "knowledge_retrieval": knowledge_retrieval,
+        "knowledge_application": knowledge_application,
         "grade": _redact_value(grade, workspace),
     }
     result["deliverable_complete"] = bool(grade.get("complete", grade.get("correct")))
@@ -1850,6 +2301,7 @@ def _paired_summary(
             bool(item.get("workflow_efficiency", {}).get("efficient", True)) for item in valid_items
         )
         retrievals = [item.get("knowledge_retrieval", {}) for item in valid_items]
+        mechanisms = [item.get("workflow_mechanisms", {}) for item in valid_items]
         complete_commands = sum(required.issubset(item["trace"]["executed_evidence_kinds"]) for item in valid_items)
         structured_evidence = sum(required.issubset(item["current_passed_evidence_kinds"]) for item in valid_items)
         input_usage = [item["trace"]["usage"].get("input_tokens") for item in valid_items]
@@ -1870,6 +2322,9 @@ def _paired_summary(
             "observed_skill_use": observed_skill,
             "workflow_compliant_runs": workflow_compliant,
             "workflow_violation_runs": valid - workflow_compliant,
+            "rtl_ass_eda_adapter_commands": sum(
+                len(item.get("workflow_audit", {}).get("rtl_ass_eda_adapter_commands", [])) for item in valid_items
+            ),
             "workflow_efficient_runs": workflow_efficient,
             "workflow_efficiency_finding_runs": valid - workflow_efficient,
             "redundant_evidence_executions": sum(
@@ -1879,7 +2334,28 @@ def _paired_summary(
             "post_ready_eda_commands": sum(
                 len(item.get("workflow_efficiency", {}).get("post_ready_eda_commands", [])) for item in valid_items
             ),
+            "failed_rtl_ass_entrypoint_commands": sum(
+                len(item.get("workflow_efficiency", {}).get("failed_rtl_ass_entrypoint_commands", []))
+                for item in valid_items
+            ),
+            "runs_with_bounded_project_summary": sum(
+                bool(mechanism.get("bounded_project_summary")) for mechanism in mechanisms
+            ),
+            "runs_with_unbounded_project_inspection": sum(
+                bool(mechanism.get("unbounded_project_inspection")) for mechanism in mechanisms
+            ),
+            "runs_with_baseline_evidence_before_first_tracked_change": sum(
+                bool(mechanism.get("baseline_evidence_before_first_tracked_change")) for mechanism in mechanisms
+            ),
+            "runs_with_manifest_validation": sum(bool(mechanism.get("manifest_validated")) for mechanism in mechanisms),
+            "failed_commands": sum(int(mechanism.get("failed_command_count", 0)) for mechanism in mechanisms),
+            "recovered_exact_retries": sum(
+                int(mechanism.get("recovered_exact_retry_count", 0)) for mechanism in mechanisms
+            ),
             "valid_retrieval_receipts": sum(int(retrieval.get("valid_receipt_count", 0)) for retrieval in retrievals),
+            "calibrated_retrieval_receipts": sum(
+                int(retrieval.get("calibrated_receipt_count", 0)) for retrieval in retrievals
+            ),
             "runs_with_valid_retrieval": sum(
                 int(retrieval.get("valid_receipt_count", 0)) > 0 for retrieval in retrievals
             ),
@@ -1888,6 +2364,9 @@ def _paired_summary(
             ),
             "retrieval_results_inspected": sum(
                 len(retrieval.get("inspected_result_ids", [])) for retrieval in retrievals
+            ),
+            "calibrated_retrieval_results_inspected": sum(
+                len(retrieval.get("calibrated_inspected_result_ids", [])) for retrieval in retrievals
             ),
             "retrieval_results_uninspected": sum(
                 len(retrieval.get("uninspected_result_ids", [])) for retrieval in retrievals
@@ -1995,16 +2474,35 @@ def main(arguments: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--ablation",
-        choices=("skill", "retrieval"),
+        choices=("skill", "retrieval", "product"),
         default="skill",
-        help="compare Skill absence/presence or compare an empty/non-empty audited retrieval index",
+        help=(
+            "skill: native versus Skill without knowledge; retrieval: Skill with empty versus populated knowledge; "
+            "product: native versus Skill with relevant calibrated knowledge"
+        ),
     )
     parser.add_argument(
-        "--retrieval-pack",
+        "--retrieval-database",
         type=Path,
-        help="portable knowledge pack imported only for the retrieval-on condition",
+        help="audited database with 1-3 calibrated cards copied only to the treated on condition",
     )
-    parser.add_argument("--case", choices=sorted(CASES), default=DEFAULT_CASE_ID)
+    parser.add_argument(
+        "--retrieval-treatment-manifest",
+        type=Path,
+        help="human-reviewed relevant or plausible-irrelevant judgment bound to the exact case and card hashes",
+    )
+    case_selection = parser.add_mutually_exclusive_group()
+    case_selection.add_argument("--case", choices=sorted(CASES), default=None)
+    case_selection.add_argument(
+        "--soc-case",
+        choices=sorted(SOC_CASES),
+        help="materialize a pinned repository-scale case from --source-repository",
+    )
+    parser.add_argument(
+        "--source-repository",
+        type=Path,
+        help="local Git object store used only to materialize the selected pinned SoC case",
+    )
     args = parser.parse_args(arguments)
     if not 1 <= args.replicates <= 20 or not 1 <= args.parallel <= 4 or not 60 <= args.timeout <= 3600:
         raise SystemExit("replicates, parallelism, or timeout is outside the audited range")
@@ -2016,21 +2514,54 @@ def main(arguments: list[str] | None = None) -> int:
     required_skill_files = (skill_root / "SKILL.md", skill_root / "scripts" / "rtl_ass.py")
     if not skill_root.is_dir() or not all(path.is_file() and not path.is_symlink() for path in required_skill_files):
         raise SystemExit("skill root is missing a regular SKILL.md or scripts/rtl_ass.py")
-    retrieval_pack = args.retrieval_pack.resolve() if args.retrieval_pack is not None else None
-    if (args.ablation == "retrieval") != (retrieval_pack is not None):
-        raise SystemExit("--ablation retrieval requires --retrieval-pack, which is forbidden for skill ablation")
-    if retrieval_pack is not None and (not retrieval_pack.is_file() or retrieval_pack.is_symlink()):
-        raise SystemExit("retrieval pack must be a regular non-symlink file")
+    retrieval_database = args.retrieval_database.resolve() if args.retrieval_database is not None else None
+    retrieval_treatment_path = (
+        args.retrieval_treatment_manifest.resolve() if args.retrieval_treatment_manifest is not None else None
+    )
+    if (args.ablation in KNOWLEDGE_TREATMENT_ABLATIONS) != (
+        retrieval_database is not None and retrieval_treatment_path is not None
+    ):
+        raise SystemExit(
+            "--ablation retrieval/product requires --retrieval-database and --retrieval-treatment-manifest; "
+            "both are forbidden for the skill-only ablation"
+        )
+    if retrieval_database is not None and (not retrieval_database.is_file() or retrieval_database.is_symlink()):
+        raise SystemExit("retrieval database must be a regular non-symlink file")
     if args.outer_bwrap and args.sandbox_network:
         raise SystemExit("--sandbox-network only configures Codex's inner workspace-write sandbox")
     if args.outer_bwrap and args.parallel != 1:
         raise SystemExit("resource-supervised --outer-bwrap requires --parallel 1")
+    if (args.soc_case is None) != (args.source_repository is None):
+        raise SystemExit("--soc-case and --source-repository must be supplied together")
     resource_preflight = _resource_preflight(DEFAULT_RESOURCE_POLICY) if args.outer_bwrap else None
     codex_version = _codex_version(args.codex)
-    case = get_case(args.case)
+    source_snapshot: dict[str, Any] | None = None
+    if args.soc_case is not None and args.source_repository is not None:
+        case, source_snapshot = materialize_soc_case(
+            args.soc_case,
+            args.source_repository,
+            output / "case-source",
+        )
+    else:
+        case = get_case(args.case or DEFAULT_CASE_ID)
     retrieval_contamination_audit = (
-        _validate_retrieval_ablation_pack(retrieval_pack, case) if retrieval_pack is not None else None
+        _validate_retrieval_ablation_database(retrieval_database, case) if retrieval_database is not None else None
     )
+    retrieval_treatment = (
+        _load_retrieval_treatment(
+            retrieval_treatment_path,
+            case=case,
+            database_audit=retrieval_contamination_audit,
+        )
+        if retrieval_treatment_path is not None and retrieval_contamination_audit is not None
+        else None
+    )
+    if (
+        args.ablation == "product"
+        and retrieval_treatment is not None
+        and retrieval_treatment["treatment"] != "relevant"
+    ):
+        raise SystemExit("--ablation product requires a relevant treatment manifest")
     jobs: list[tuple[int, str]] = [
         (replicate, condition)
         for replicate in range(1, args.replicates + 1)
@@ -2052,7 +2583,8 @@ def main(arguments: list[str] | None = None) -> int:
             "case": case,
             "skill_root": skill_root,
             "ablation": args.ablation,
-            "retrieval_pack": retrieval_pack,
+            "source_retrieval_database": retrieval_database,
+            "retrieval_treatment": retrieval_treatment,
         }
         for replicate, condition in jobs
     ]
@@ -2088,19 +2620,32 @@ def main(arguments: list[str] | None = None) -> int:
                 results.append(result)
                 _print_run_result(result)
     results.sort(key=lambda item: (item["replicate"], item["condition"]))
+    harness_paths = [
+        Path(__file__).resolve(),
+        ROOT / "evals" / "retrieval_treatment.py",
+        ROOT / "evals" / "knowledge_application.py",
+        ROOT / "evals" / "file_application_case.py",
+        ROOT / "evals" / "workflow_cases.py",
+    ]
+    if source_snapshot is not None:
+        harness_paths.append(ROOT / "evals" / "soc_workflow_cases.py")
     report = {
         "schema_version": "1.0",
         "kind": "codex-skill-workflow-audit",
         "generated_at": datetime.now(UTC).isoformat(),
         "case": case.identifier,
         "ablation": args.ablation,
-        "retrieval_pack_hash": hash_file(retrieval_pack) if retrieval_pack is not None else None,
-        "retrieval_pack_tree_hash": _hash_tree(retrieval_pack.parent) if retrieval_pack is not None else None,
+        "retrieval_database_hash": hash_file(retrieval_database) if retrieval_database is not None else None,
         "retrieval_contamination_audit": retrieval_contamination_audit,
+        "retrieval_treatment": retrieval_treatment,
+        "retrieval_treatment_manifest_hash": (
+            hash_file(retrieval_treatment_path) if retrieval_treatment_path is not None else None
+        ),
+        "source_snapshot": source_snapshot,
         "prompt_hash": hashlib.sha256(case.prompt.encode()).hexdigest(),
         "fixture_hash": _hash_tree(case.public_fixture),
         "hidden_grader_hash": _hash_tree(case.public_fixture.parent / "private"),
-        "harness_hash": _hash_files((Path(__file__).resolve(), ROOT / "evals" / "workflow_cases.py")),
+        "harness_hash": _hash_files(harness_paths),
         "skill_hash": _hash_tree(skill_root),
         "runtime_hash": _hash_tree(
             skill_root / "runtime" if (skill_root / "runtime").is_dir() else ROOT / "src" / "rtl_ass"
@@ -2134,6 +2679,7 @@ def main(arguments: list[str] | None = None) -> int:
         ),
         "replicates": args.replicates,
         "required_evidence": sorted(case.required_evidence),
+        "skill_required_mechanisms": sorted(case.skill_required_mechanisms),
         "allowed_evidence": sorted(case.allowed_evidence),
         "tool_discovery": _redact_host_value(discover_tools()),
         "trace_policy": {

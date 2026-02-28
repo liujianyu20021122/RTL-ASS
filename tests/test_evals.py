@@ -17,7 +17,7 @@ class EvaluationManifestTests(unittest.TestCase):
         manifest = json.loads((ROOT / "evals" / "cases.json").read_text(encoding="utf-8"))
         validated = validate_manifest(manifest)
         self.assertEqual(validated["effectiveness_status"], "not_evaluated")
-        self.assertEqual(len(validated["cases"]), 6)
+        self.assertEqual(len(validated["cases"]), 7)
 
     def test_multitask_summary_is_internally_consistent(self) -> None:
         manifest = json.loads((ROOT / "evals" / "cases.json").read_text(encoding="utf-8"))
@@ -30,7 +30,10 @@ class EvaluationManifestTests(unittest.TestCase):
             summary["effectiveness_status"],
             "workflow_mechanism_validated_general_correctness_uplift_not_established",
         )
-        self.assertEqual({case["id"] for case in cases}, {case["id"] for case in manifest["cases"]})
+        self.assertEqual(
+            {case["id"] for case in cases},
+            {case["id"] for case in manifest["cases"]} - {"packet-tag-skid"},
+        )
         self.assertEqual(len({case["report_hash"] for case in cases}), 6)
 
         aggregate = summary["aggregate_descriptive_only"]

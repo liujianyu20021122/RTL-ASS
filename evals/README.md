@@ -2,7 +2,39 @@
 
 `cases.json` is the public, non-answer case manifest for controlled Codex skill-off/skill-on evaluation. It is not a benchmark score and must not be evaluated by keyword matching.
 
-For each case, hold the Codex model/version, prompt, tool access, token and elapsed budgets, starting repository, and hidden tests constant. Hold a seed constant when the evaluated interface exposes one; `codex exec` currently does not, so repeated pairs are independent replications rather than deterministic seeded trials. The off condition receives no RTL-ASS skill or knowledge namespace. The on condition receives the released skill and only the namespaces declared for that case. Run at least five pairs before comparing pass rate, first-pass correctness, evidence completeness, regression rate, and cost.
+For each case, hold the Codex model/version, prompt, selected or project-local verification flow, token and elapsed budgets, starting repository, and hidden tests constant. Hold a seed constant when the evaluated interface exposes one; `codex exec` currently does not, so repeated pairs are independent replications rather than deterministic seeded trials. The native condition receives no RTL-ASS skill or knowledge namespace. The primary product condition receives the released retrieval-first Skill and only the relevant calibrated namespaces declared for that case. Empty and irrelevant calibrated namespaces are separate retrieval controls. Run at least five pairs before comparing pass rate, first-pass correctness, evidence completeness, regression rate, and cost.
+
+Do not enable RTL-ASS EDA adapters in a primary retrieval comparison merely because they are available. Use the same user-selected or project-local commands in every condition. A separate fallback-policy case may expose named adapters only after its prompt includes the required explicit user confirmation.
+
+Retrieval comparisons accept an audited SQLite database, not a raw portable pack. The database must contain one to three contamination-reviewed `verified` or `promoted` cards in `eval:retrieval`; raw imports must first pass normal curation and verification outside the evaluated task. Every database is paired with a treatment manifest that binds the exact case hashes and card-content hashes, and labels the human-reviewed judgment as `relevant` or `plausible-irrelevant`. The manifest remains outside the Codex workspace. Use `--ablation retrieval` for Skill-with-empty versus Skill-with-treatment, `--ablation product` for native Codex versus Skill-with-relevant-treatment, and retain `--ablation skill` only as the diagnostic no-knowledge Skill comparison. Any attempted RTL-ASS EDA-adapter command makes a retrieval or product run workflow-noncompliant, including failed attempts; read-only `kb`, manifest, inspection, and evidence-validation operations remain distinguishable.
+
+The on condition must retain a valid calibrated receipt. A relevant treatment must also include an observable
+`kb show --include-content` read of a returned card. A reviewed plausible-irrelevant hit may be rejected from the
+bounded receipt metadata without opening it; the report still distinguishes returned, opened, and uninspected
+records. Missing treatment metadata uses the conservative relevant-card rule.
+
+The signed-width fixture includes two project-local calibration treatments. The relevant treatment exhaustively checks all signed 4-bit operand pairs and requires detection of a narrow-intermediate mutation. The plausible-irrelevant treatment verifies a ready/valid payload-width card with a passing baseline and requires rejection of a backpressure mutation; it shares surface terms such as width, valid, reset, and latency but contains no signed-arithmetic rule. Both invoke Icarus Verilog directly and write only ignored local artifacts; they are evaluation curation, not RTL-ASS EDA fallback databases shipped to users:
+
+```bash
+PYTHONPATH=src python3 evals/retrieval_packs/signed-width/calibrate.py \
+  --treatment relevant \
+  --output .rtl-ass/evals/signed-width-calibrated.db
+PYTHONPATH=src python3 evals/retrieval_packs/signed-width/calibrate.py \
+  --treatment plausible-irrelevant \
+  --output .rtl-ass/evals/signed-width-irrelevant.db
+```
+
+The primary product pair uses the relevant manifest:
+
+```bash
+PYTHONPATH=src python3 evals/run_codex_ab.py \
+  --output .rtl-ass/evals/signed-width-product-5 \
+  --replicates 5 --parallel 1 --timeout 900 \
+  --model gpt-5.6-sol --effort high --outer-bwrap \
+  --case systemverilog-signed-width --ablation product \
+  --retrieval-database .rtl-ass/evals/signed-width-calibrated.db \
+  --retrieval-treatment-manifest evals/retrieval_packs/signed-width/relevant-treatment.json
+```
 
 Hidden tests, reference implementations, and adjudication notes must never enter a retrieval namespace visible to either condition. Preserve every candidate, command, tool version, artifact hash, timeout, infrastructure failure, and reviewer override. Report confidence intervals and raw paired outcomes; do not collapse correctness into a style score.
 
@@ -15,7 +47,21 @@ PYTHONPATH=src python3 evals/validate_cases.py evals/cases.json
 RTL-ASS 1.1 publishes both this protocol and the reviewed six-class workflow audit, while making no general model-uplift claim. The audit is published in
 [`results/2026-09-01-codex-multitask-workflow-audit.md`](results/2026-09-01-codex-multitask-workflow-audit.md).
 
+The first treatment-bound product and plausible-irrelevant development observations, their forward-policy replay,
+and the resource-protected follow-up stop are recorded in the
+[`2026-09-04 causal retrieval controls`](results/2026-09-04-causal-retrieval-controls.md). They validate and repair
+the experimental mechanism; they are not an effectiveness claim.
+
+The complete signed-width product, relevant, and plausible-irrelevant results are recorded in the
+[`2026-09-05 frozen causal retrieval campaign`](results/2026-09-05-frozen-causal-retrieval-campaign.md). The task
+reached a native 5/5 ceiling and does not support a correctness or general efficiency uplift claim.
+
 ## Observable Codex workflow audit
+
+File-level source inspection and independently checked application are documented in
+[the file-application protocol](../docs/file-application-evaluation.md). Its `packet-tag-skid` case uses an isolated,
+behavior-calibrated upstream RTL record, and does not count successful retrieval or self-reported use as proof
+of correct adaptation.
 
 `run_codex_ab.py` exercises any registered workflow fixture in isolated Git workspaces. It invokes `codex exec --json`, stores the raw JSONL only below the ignored output directory, and emits a sanitized report containing event counts, redacted commands, file changes, final agent messages, usage, skill activation signals, normalized evidence records, and an external hidden-test grade. Reasoning item content is never copied into the sanitized result. The report binds the fixture, prompt, hidden grader, harness, skill, runtime, and combined on payload by SHA-256.
 
@@ -29,9 +75,11 @@ PYTHONPATH=src python3 evals/run_codex_ab.py \
   --case repair-non-power-of-two-fifo
 ```
 
-Command network access is disabled by default. If the host cannot initialize Codex's isolated loopback network namespace, `--sandbox-network` retains the `workspace-write` filesystem sandbox while explicitly enabling command network access. The report records this weaker isolation setting; use it only for local workflow diagnostics.
+Command network access is disabled by default. If the host cannot initialize Codex's isolated loopback network namespace, `--sandbox-network` retains the `workspace-write` filesystem sandbox while explicitly enabling command network access. The report records this weaker isolation setting; use it only for local workflow diagnostics. This mode still requires the host to support Codex's own sandbox; it is not valid inside another namespace that forbids nested `bwrap`. Use the audited `--outer-bwrap` mode for formal runs in such an environment.
 
-Select one of the six case IDs listed by `python3 evals/run_codex_ab.py --help`. There is deliberately no implicit all-case mode: each campaign receives a distinct output directory and report identity. Do not modify the runner, case registry, fixture, hidden grader, skill, or runtime while a campaign is running.
+Select one of the seven case IDs listed by `python3 evals/run_codex_ab.py --help`. There is deliberately no implicit all-case mode: each campaign receives a distinct output directory and report identity. Do not modify the runner, case registry, fixture, hidden grader, skill, or runtime while a campaign is running.
+
+Repository-scale cases use `--soc-case` together with a local `--source-repository`. The runner reads only pinned Git objects, verifies the declared commit/tree/file and hidden-test identities, materializes a fresh full-repository fixture below the ignored output directory, and keeps that source store outside the agent sandbox. These cases follow [the large-SoC protocol](../docs/soc-evaluation.md); one pair is only a harness smoke.
 
 The audited reasoning-effort axis is `none`, `low`, `medium`, `high`, `xhigh`, and `max`. Treat model and effort selection as experimental parameters: screen configurations with one independent pair on representative cases, then run at least five fresh pairs for any configuration used in an effectiveness claim. Do not combine reports whose prompt, fixture, hidden grader, harness, Skill, or runtime hashes differ. Token counts and latency are reportable directly; monetary cost requires a separately dated price source and is never inferred by this harness.
 

@@ -1,0 +1,16 @@
+{
+  "record_id": "7397dc7bd86b6d86b2361eb3bdd50696",
+  "source_uri": "https://github.com/alexforencich/verilog-axis.git",
+  "source_revision": "48ff7a7e2ef782cf778d47910cf85835c64b1bce",
+  "source_path": "rtl/axis_register.v",
+  "content_hash": "599fde2d6c2d806643bbffb7c444297e69a71871f962d4b741ec1914342e0d39",
+  "license_spdx": "MIT",
+  "license_status": "known",
+  "role": "rtl-design",
+  "status": "verified",
+  "scope": "local-evaluation-only; retain upstream copyright and MIT notice",
+  "contamination_review": "no-task-source-no-test-no-reference-no-patch-no-grader-output",
+  "reviewer": "codex-file-application-audit",
+  "reviewed_at": "2026-09-05T00:00:00+00:00",
+  "review_basis": "Pre-existing upstream transport component. It contains neither the packet transform/tag arithmetic nor the task interface, implementation, tests or expected patch. Calibration tests are separate from the packet-stage grader. This is component-reference reuse, not a secret benchmark."
+}

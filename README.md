@@ -1,24 +1,24 @@
 # RTL-ASS 1.3
 
-RTL-ASS is a vendor-neutral Codex skill for Verilog and SystemVerilog engineering. It augments Codex with RTL-specific task routing, deterministic open-source evidence adapters, bounded VCD/FST analysis, and an audited local knowledge index. Codex remains responsible for understanding the specification, editing code, interpreting evidence, and selecting the final implementation.
+RTL-ASS is a retrieval-first, vendor-neutral Codex skill for Verilog and SystemVerilog engineering. It gives Codex bounded access to calibrated, provenance-bearing RTL design, testbench, assertion, and bug-pattern knowledge. Codex remains responsible for understanding the specification, editing code, reasoning about applicability, interpreting evidence, and selecting the final implementation.
 
-RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or depend on proprietary EDA tools.
+RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or replace a user-selected or project-local verification flow. Its open-source EDA adapters are optional fallbacks and are never the primary Skill mechanism.
 
 ## 1.3 capabilities
 
+- Retrieval-first use of explicit SQLite/FTS5 namespaces, immutable receipts, calibrated lifecycle state, provenance, license metadata, RTL/TB/assertion roles, and negative evidence.
 - Verilog/SystemVerilog repository inspection without executing source.
 - One versioned CompileManifest for ordered sources, library files, include directories, language mode, defines, parameters, and top across every source-based adapter.
-- Verilator lint plus native Verilator or Icarus Verilog self-checking simulation evidence.
-- Yosys generic synthesis and bounded SAT checks, plus native SymbiYosys assertion and EQY equivalence evidence with explicit solver, depth, initialization, and counterexample semantics.
-- OpenSTA evidence only from an exact netlist, Liberty library, and SDC; unconstrained endpoints block closure claims.
-- Bounded VCD queries and first-divergence analysis; resource-bounded FST conversion through `fst2vcd` with original and converted hashes.
-- SQLite/FTS5 namespaces, immutable content identity, explicit RTL/TB/assertion roles, guarded lifecycle transitions, and append-only hash-chained audit events.
+- Optional, explicitly selected or confirmed fallbacks for Verilator lint/simulation and Icarus Verilog self-checking simulation evidence.
+- Optional, explicitly selected or confirmed Yosys synthesis/bounded SAT, SymbiYosys assertion, and EQY equivalence fallbacks with explicit solver, depth, initialization, and counterexample semantics.
+- Optional, explicitly selected or confirmed OpenSTA evidence only from an exact netlist, Liberty library, and SDC; unconstrained endpoints block closure claims.
+- Bounded VCD queries and first-divergence analysis; optional confirmed FST conversion through `fst2vcd` with original and converted hashes.
 - Atomic verification/observation workflows, explicit failure attribution, candidate derivation, and portable license-aware knowledge packs.
 - A first-party Apache-2.0 starter pack with RTL, TB, assertions, and focused engineering cards.
 - A reviewed 1,429-file open-source HDL corpus lock with isolated provenance and lifecycle state; upstream code is not redistributed.
 - A six-class paired Codex workflow audit covering RTL generation, repair, RTL/TB attribution, SystemVerilog signed arithmetic, FST localization, and OpenSTA-driven refinement.
 - Task-scoped verification plans, current-evidence summaries, duplicate-run detection, and one bounded EDA execution lock per workspace.
-- Immutable retrieval receipts plus paired empty/populated-index ablations that distinguish returned cards from records Codex actually inspects.
+- Immutable retrieval receipts plus task-bound relevant/plausible-irrelevant treatment manifests and separate native-product or empty-index causal comparisons.
 
 The core Python package uses only the standard library. EDA programs are optional open-source executables discovered at runtime.
 
@@ -34,11 +34,35 @@ rtl-ass doctor
 
 Install the complete `rtl-ass` skill directory from the release archive into the Codex skills directory, or use the repository copy at `.agents/skills/rtl-ass/`. The release Skill carries a hash-verified embedded runtime; the repository launcher uses the matching source tree. See [installation and removal](docs/installation.md) for complete commands.
 
-## Quick start
+## Knowledge-first quick start
+
+Ordinary Skill use starts from an existing audited database. Search `promoted` records first, then `verified` records when no relevant promoted card exists. Do not use raw corpus files as default coding guidance.
 
 ```bash
+# Inspect the audited inventory and explicit namespaces
+rtl-ass kb stats --db .rtl-ass/index.db
+
+# Retrieve no more than three calibrated references and retain the receipt
+rtl-ass kb search 'ready valid backpressure' --db .rtl-ass/index.db \
+  --namespace builtin:starter --status verified --match any --limit 3 \
+  --actor codex --output artifacts/rtl-ass/retrieval.json
+rtl-ass kb show <record-id> --db .rtl-ass/index.db --include-content
+
 # Inspect without executing RTL
-rtl-ass inspect path/to/project --json
+rtl-ass inspect path/to/project --summary
+```
+
+Database initialization, import, derivation, verification, and promotion are explicit curation operations, not side effects of a coding request. See [knowledge packs](docs/knowledge-packs.md) and [corpus governance](docs/corpus.md).
+
+## Optional verification fallback
+
+Verification precedence is: the user's selected flow, then an applicable documented project-local flow, then an RTL-ASS fallback. When neither prior flow is usable or permitted and executed verification is required, Codex must ask the user to confirm both that no other local flow should be used because it is unavailable or disallowed and that the named RTL-ASS backend may run. An explicit request for that helper/backend is already a user-selected flow. The complete integrated and discovery-only inventory is in [tool selection](.agents/skills/rtl-ass/references/tool-selection.md).
+
+After that boundary is satisfied, representative commands are:
+
+```bash
+# Inventory only; this does not authorize or execute verification
+rtl-ass doctor
 
 # Validate Codex's explicit final-claim plan
 rtl-ass verify plan verification-plan.json
@@ -67,21 +91,6 @@ rtl-ass verify summarize --plan verification-plan.json \
 rtl-ass wave query artifacts/run.fst --signal 'tb.dut.*valid*' --start 100 --end 300 --max-events 200
 rtl-ass wave diff artifacts/run.fst --expected tb.expected --actual tb.actual --start 100 --end 300
 
-# Import and search the first-party starter pack
-rtl-ass kb init --db .rtl-ass/knowledge.db --actor local-user
-rtl-ass kb pack-validate library/starter/pack.json
-rtl-ass kb import-pack library/starter/pack.json --db .rtl-ass/knowledge.db \
-  --namespace builtin:starter --actor local-user
-rtl-ass kb search 'ready valid backpressure' --db .rtl-ass/knowledge.db --namespace builtin:starter \
-  --match any --limit 3 --actor codex --output artifacts/rtl-ass/retrieval.json
-rtl-ass kb show <record-id> --db .rtl-ass/knowledge.db --include-content
-
-# Reproduce the reviewed local upstream index (source checkouts stay ignored)
-rtl-ass corpus lock corpus/ingestion-policy.json \
-  --source-root research/upstream --output corpus/curated-lock.json
-rtl-ass kb import-corpus corpus/curated-lock.json --source-root research/upstream \
-  --db .rtl-ass/knowledge.db --actor corpus-review
-rtl-ass kb stats --db .rtl-ass/knowledge.db
 ```
 
 All commands return stable machine-readable JSON on success and structured JSON errors on failure. `doctor` reports discovery only; it never implies that verification ran.
@@ -90,7 +99,7 @@ All commands return stable machine-readable JSON on success and structured JSON 
 
 Imported material starts `raw`; derived material starts `candidate`; neither is verified or promoted automatically. Verification requires exact passing evidence and is committed atomically with evidence records and links. Failed, blocked, timeout, and infrastructure outcomes are retained without being mislabeled as RTL defects. Pack import validates paths, byte bounds, content hashes, roles, relationships, and the pack identity before database writes.
 
-The audit chain is tamper-evident rather than tamper-proof: a database owner can replace the whole database. The reviewed corpus lock describes 1,429 raw Verilog/SystemVerilog files across seven isolated namespaces without redistributing their code. See [audit model](docs/audit-model.md), [architecture](docs/architecture.md), [corpus governance](docs/corpus.md), and [knowledge packs](docs/knowledge-packs.md).
+The audit chain is tamper-evident rather than tamper-proof: a database owner can replace the whole database. The reviewed corpus lock describes 1,429 raw Verilog/SystemVerilog files across seven isolated namespaces without redistributing their code; those raw files are inventory, not calibrated recommendations. See [audit model](docs/audit-model.md), [architecture](docs/architecture.md), [corpus governance](docs/corpus.md), and [knowledge packs](docs/knowledge-packs.md).
 
 ## Development and release verification
 
@@ -105,7 +114,7 @@ python3 -m build
 twine check dist/*.whl dist/*.tar.gz
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); reviewed results include the [six-class Codex workflow audit](evals/results/2026-09-01-codex-multitask-workflow-audit.md) and [v1.3.0 retrieval ablation](evals/results/2026-09-03-v1.3.0-retrieval-ablation.md). See the [v1.3.0 release notes](docs/releases/v1.3.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md). Reviewed results include the [six-class Codex workflow audit](evals/results/2026-09-01-codex-multitask-workflow-audit.md), the historical raw-pack [v1.3.0 retrieval instrumentation ablation](evals/results/2026-09-03-v1.3.0-retrieval-ablation.md), and the first [calibrated retrieval-first development smokes](evals/results/2026-09-04-calibrated-retrieval-smokes.md). The calibrated smokes validate the corrected mechanism and retain one partial-application failure, but their one-pair samples do not establish general uplift or expected overhead. See the [v1.3.0 release notes](docs/releases/v1.3.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 

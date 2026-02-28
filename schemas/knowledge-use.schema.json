@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/knowledge-use.schema.json",
+  "title": "Evaluation-only declared knowledge use (not verification evidence)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "uses"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "uses": {"type": "array", "maxItems": 3, "items": {"$ref": "#/$defs/use"}}
+  },
+  "$defs": {
+    "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "use": {
+      "type": "object", "additionalProperties": false,
+      "required": ["record_id", "content_hash", "decision", "reason", "target", "target_hash", "constraints"],
+      "properties": {
+        "record_id": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
+        "content_hash": {"$ref": "#/$defs/hash"},
+        "decision": {"enum": ["applied", "rejected"]},
+        "reason": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "\\S"},
+        "target": {"type": ["string", "null"]},
+        "target_hash": {"anyOf": [{"$ref": "#/$defs/hash"}, {"type": "null"}]},
+        "constraints": {"type": "array", "maxItems": 12, "uniqueItems": true,
+          "items": {"type": "string", "minLength": 1, "maxLength": 128, "pattern": "\\S"}}
+      },
+      "allOf": [
+        {"if": {"properties": {"decision": {"const": "applied"}}},
+         "then": {"properties": {
+           "target": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*\\\\)(?!.*(?:^|/)(?:\\.\\.?|)(?:/|$)).+$"},
+           "target_hash": {"$ref": "#/$defs/hash"}, "constraints": {"minItems": 1}}},
+         "else": {"properties": {"target": {"type": "null"}, "target_hash": {"type": "null"}, "constraints": {"maxItems": 0}}}}
+      ]
+    }
+  }
+}

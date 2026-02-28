@@ -4,9 +4,12 @@
 
 - Python 3.11 or 3.12.
 - Codex for the skill workflow.
-- Only the open-source tools needed by the requested evidence: Verilator, Icarus Verilog, Yosys, SymbiYosys plus an open SMT solver, EQY, OpenSTA, and GTKWave's `fst2vcd` are independently optional. EQY plugins must be built for the exact Yosys installation that loads them.
+- No EDA tool is required for calibrated knowledge retrieval.
+- Only for an explicitly selected or user-confirmed fallback: the open-source executable needed by that evidence. Integrated fallbacks are Verilator, Icarus Verilog/`vvp`, Yosys, SymbiYosys plus an open SMT solver, EQY, OpenSTA, and GTKWave's `fst2vcd`. EQY plugins must be built for the exact Yosys installation that loads them.
 
 ## Install the helper
+
+Installing the Python package provides knowledge, inspection, and adapter orchestration code; it does not install any EDA executable.
 
 From a release download:
 

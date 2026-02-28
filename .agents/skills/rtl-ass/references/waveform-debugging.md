@@ -1,6 +1,6 @@
 # Waveform debugging
 
-Use machine-readable VCD/FST queries before opening a GUI or loading an unbounded trace into context.
+Preserve a user-selected or project-local waveform flow. The internal bounded VCD parser executes no EDA program. FST conversion invokes external `fst2vcd` and follows the confirmed-fallback boundary in [tool-selection.md](tool-selection.md). Never load an unbounded trace into context.
 
 For FST, bind the original FST hash, converter executable hash/version, exact conversion command, converted VCD hash, timeout, and maximum converted bytes. A converter failure, timeout, or expansion-limit breach is blocked evidence, not an empty or matching waveform.
 

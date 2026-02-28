@@ -157,6 +157,7 @@ def inspect_project(
     *,
     max_source_bytes: int = 5 * 1024 * 1024,
     follow_symlinks: bool = False,
+    summary_only: bool = False,
 ) -> dict[str, Any]:
     if max_source_bytes < 1:
         raise RtlAssError("invalid_size_limit", "max_source_bytes must be positive")
@@ -165,32 +166,63 @@ def inspect_project(
     base = resolved_root.parent if resolved_root.is_file() else resolved_root
     files: list[dict[str, Any]] = []
     skipped: list[dict[str, Any]] = []
+    file_count = 0
+    source_bytes = 0
+    role_counts: dict[str, int] = {}
+    language_counts: dict[str, int] = {}
+    construct_counts = {"interfaces": 0, "modules": 0, "packages": 0}
+    top_level_counts: dict[str, int] = {}
+    skipped_reason_counts: dict[str, int] = {}
 
     for source_path in discover_sources(resolved_root, follow_symlinks=follow_symlinks):
         relative = source_path.relative_to(base).as_posix()
         size = source_path.stat().st_size
         if size > max_source_bytes:
-            skipped.append({"path": relative, "reason": "source_too_large", "byte_count": size})
+            reason = "source_too_large"
+            skipped_reason_counts[reason] = skipped_reason_counts.get(reason, 0) + 1
+            if not summary_only:
+                skipped.append({"path": relative, "reason": reason, "byte_count": size})
             continue
         try:
             text = read_utf8_exact(source_path)
         except UnicodeDecodeError as exc:
-            skipped.append({"path": relative, "reason": "not_utf8", "offset": exc.start})
+            reason = "not_utf8"
+            skipped_reason_counts[reason] = skipped_reason_counts.get(reason, 0) + 1
+            if not summary_only:
+                skipped.append({"path": relative, "reason": reason, "offset": exc.start})
             continue
-        files.append(analyze_source(source_path, text, relative))
-
-    role_counts: dict[str, int] = {}
-    for item in files:
+        item = analyze_source(source_path, text, relative)
+        file_count += 1
+        source_bytes += item["byte_count"]
         role_counts[item["role"]] = role_counts.get(item["role"], 0) + 1
-    return {
+        language_counts[item["language"]] = language_counts.get(item["language"], 0) + 1
+        for name in construct_counts:
+            construct_counts[name] += len(item[name])
+        top_level = relative.split("/", maxsplit=1)[0]
+        top_level_counts[top_level] = top_level_counts.get(top_level, 0) + 1
+        if not summary_only:
+            files.append(item)
+
+    ordered_top_levels = sorted(top_level_counts.items(), key=lambda item: (-item[1], item[0]))
+    report: dict[str, Any] = {
         "schema_version": "1.0",
         "project": root.as_posix(),
-        "file_count": len(files),
+        "summary_only": summary_only,
+        "file_count": file_count,
+        "source_bytes": source_bytes,
         "role_counts": dict(sorted(role_counts.items())),
-        "files": files,
-        "skipped": skipped,
+        "language_counts": dict(sorted(language_counts.items())),
+        "construct_counts": construct_counts,
+        "top_level_counts": dict(ordered_top_levels[:32]),
+        "top_level_omitted": max(0, len(ordered_top_levels) - 32),
+        "skipped_count": sum(skipped_reason_counts.values()),
+        "skipped_reason_counts": dict(sorted(skipped_reason_counts.items())),
         "limitations": [
             "role, clock, and reset fields are lexical hints rather than elaborated semantic proof",
             "inspection does not execute or elaborate source files",
         ],
     }
+    if not summary_only:
+        report["files"] = files
+        report["skipped"] = skipped
+    return report

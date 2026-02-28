@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -26,22 +28,75 @@ from evals.run_codex_ab import (
     _parse_trace,
     _prepare_workspace,
     _resource_command,
+    _rtl_ass_eda_adapter_kinds,
     _subprocess_text,
-    _validate_retrieval_ablation_pack,
+    _validate_retrieval_ablation_database,
     _wilson_interval,
     _workflow_audit,
     _workflow_efficiency,
+    _workflow_mechanisms,
     _workspace_evidence,
     _workspace_retrieval,
 )
 from evals.workflow_cases import get_case
 from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import hash_file
-from rtl_ass.kb.database import KnowledgeDatabase
+from rtl_ass.kb import KnowledgeDatabase, KnowledgeRecordInput, LicenseStatus, RecordRole, RecordStatus
 from rtl_ass.kb.retrieval import build_retrieval_receipt, write_retrieval_receipt
 from rtl_ass.waveform import query_waveform
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _build_calibrated_retrieval_database(root: Path) -> Path:
+    card = root / "signed-width-card.md"
+    artifact = root / "calibration.log"
+    evidence_file = root / "run-evidence.json"
+    card.write_text("Size signed arithmetic from its mathematical range before saturation.\n", encoding="utf-8")
+    artifact.write_text("CALIBRATION_PASS\n", encoding="utf-8")
+    database_path = root / "retrieval.db"
+    database = KnowledgeDatabase(database_path)
+    database.initialize(actor="test-harness")
+    record = database.add_record(
+        KnowledgeRecordInput(
+            namespace="eval:retrieval",
+            role=RecordRole.DESIGN_PATTERN,
+            language="markdown",
+            title="signed arithmetic sizing",
+            summary="Size an intermediate from mathematical bounds before saturation.",
+            content=card.read_text(encoding="utf-8"),
+            source_uri="https://example.invalid/calibrated-card",
+            source_revision="test-revision",
+            source_path="cards/signed-width-card.md",
+            license_spdx="Apache-2.0",
+            license_status=LicenseStatus.KNOWN,
+            metadata={"contamination_review": "no-task-source-no-test-no-reference-no-patch-no-grader-output"},
+        ),
+        actor="test-harness",
+    )["record"]
+    record_id = str(record["id"])
+    database.transition(record_id, RecordStatus.ANALYZED, actor="test-harness")
+    database.transition(record_id, RecordStatus.CANDIDATE, actor="test-harness")
+    evidence = {
+        "schema_version": "1.0",
+        "kind": "mutation",
+        "status": "pass",
+        "tool": {"name": "test-calibrator", "version": "1.0"},
+        "input_hash": "a" * 64,
+        "subject_hashes": [{"index": 0, "path": card.as_posix(), "content_hash": hash_file(card)}],
+        "commands": [["test-calibrator", card.as_posix()]],
+        "artifacts": [artifact.as_posix()],
+        "artifact_hashes": [{"index": 0, "path": artifact.as_posix(), "content_hash": hash_file(artifact)}],
+        "top": None,
+        "claim_scope": "tool execution evidence only",
+        "evidence_file": evidence_file.as_posix(),
+        "started_at": "2026-09-04T00:00:00+00:00",
+        "finished_at": "2026-09-04T00:00:01+00:00",
+        "summary": {"returncode": 0},
+    }
+    evidence_file.write_text(json.dumps(evidence) + "\n", encoding="utf-8")
+    database.verify_record(record_id, [evidence], actor="test-harness", required_evidence_kinds=["mutation"])
+    return database_path
 
 
 class CodexWorkflowTraceTests(unittest.TestCase):
@@ -59,6 +114,29 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         )
         self.assertEqual(
             _command_kinds("yosys -p 'read_verilog dut.v; synth; sat -prove ok 1'"), {"formal", "synthesis"}
+        )
+        self.assertEqual(_command_kinds("LC_ALL=C verilator --lint-only rtl/dut.sv"), {"lint"})
+
+    def test_rtl_ass_adapter_detection_excludes_retrieval_and_internal_operations(self) -> None:
+        self.assertEqual(
+            _rtl_ass_eda_adapter_kinds(
+                "rtl-ass kb search fifo --status verified; "
+                "rtl-ass manifest validate compile.json; "
+                "rtl-ass verify plan plan.json; "
+                "rtl-ass wave query trace.vcd --signal top.valid"
+            ),
+            set(),
+        )
+        self.assertEqual(
+            _rtl_ass_eda_adapter_kinds(
+                "python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --manifest compile.json; "
+                "rtl-ass wave diff trace.fst --expected top.a --actual top.b"
+            ),
+            {"simulation", "waveform"},
+        )
+        self.assertEqual(
+            _rtl_ass_eda_adapter_kinds("PYTHONPATH=src python3 -m rtl_ass verify simulate --manifest compile.json"),
+            {"simulation"},
         )
 
     def test_workspace_retrieval_requires_valid_receipt_and_observable_content_read(self) -> None:
@@ -107,9 +185,81 @@ class CodexWorkflowTraceTests(unittest.TestCase):
             observation = _workspace_retrieval(workspace, trace)
 
         self.assertEqual(observation["valid_receipt_count"], 1)
+        self.assertEqual(observation["calibrated_receipt_count"], 0)
         self.assertEqual(observation["returned_result_ids"], ["example-record"])
         self.assertEqual(observation["inspected_result_ids"], ["example-record"])
         self.assertEqual(observation["uninspected_result_ids"], [])
+
+    def test_workspace_retrieval_observes_content_read_with_environment_prefix_and_pipe(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            result = {
+                "id": "verified-record",
+                "namespace": "eval:retrieval",
+                "role": "design-pattern",
+                "status": "verified",
+                "language": "systemverilog",
+                "title": "Signed width",
+                "summary": "Make comparison operands width-compatible.",
+                "content_hash": "a" * 64,
+                "source_uri": "https://example.invalid/signed-width",
+                "source_revision": "b" * 40,
+                "source_path": "cards/signed-width.md",
+                "license_spdx": "Apache-2.0",
+                "license_status": "known",
+                "metadata": {},
+                "verification": {},
+                "excerpt": "Extend both sides of a signed comparison.",
+                "rank": -1.0,
+            }
+            receipt = build_retrieval_receipt(
+                [result],
+                actor="codex",
+                query="signed width",
+                namespaces=["eval:retrieval"],
+                limit=3,
+                role=None,
+                status=RecordStatus.VERIFIED,
+                match_mode="any",
+            )
+            write_retrieval_receipt(receipt, workspace / "artifacts" / "retrieval.json")
+            trace = {
+                "commands": [
+                    {
+                        "command": (
+                            "PYTHONPATH=src python3 -m rtl_ass kb show verified-record "
+                            "--include-content | tee artifacts/selected.json"
+                        ),
+                        "status": "completed",
+                        "exit_code": 0,
+                    }
+                ]
+            }
+
+            observation = _workspace_retrieval(workspace, trace)
+
+        self.assertEqual(observation["calibrated_receipt_count"], 1)
+        self.assertEqual(observation["calibrated_inspected_result_ids"], ["verified-record"])
+
+    def test_empty_calibrated_search_is_valid_but_not_a_calibrated_receipt(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            receipt = build_retrieval_receipt(
+                [],
+                actor="codex",
+                query="no match",
+                namespaces=["eval:retrieval"],
+                limit=3,
+                role=None,
+                status=RecordStatus.PROMOTED,
+                match_mode="any",
+            )
+            write_retrieval_receipt(receipt, workspace / "artifacts" / "retrieval.json")
+
+            observation = _workspace_retrieval(workspace, {"commands": []})
+
+        self.assertEqual(observation["valid_receipt_count"], 1)
+        self.assertEqual(observation["calibrated_receipt_count"], 0)
 
     def test_workspace_retrieval_rejects_tampered_receipt_and_launcher_read_is_outside_it(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -155,12 +305,13 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             workspace = root / "workspace"
+            retrieval_database = _build_calibrated_retrieval_database(root)
             _prepare_workspace(
                 workspace,
                 "on",
                 case=get_case("systemverilog-signed-width"),
                 ablation="retrieval",
-                retrieval_pack=ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
+                retrieval_database=retrieval_database,
             )
             forged = build_retrieval_receipt(
                 [],
@@ -169,7 +320,7 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                 namespaces=["eval:retrieval"],
                 limit=3,
                 role=None,
-                status=None,
+                status="verified",
                 match_mode="any",
             )
             write_retrieval_receipt(forged, workspace / "retrieval.json")
@@ -183,17 +334,24 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             workspace = root / "workspace"
+            retrieval_database = _build_calibrated_retrieval_database(root)
             _prepare_workspace(
                 workspace,
                 "on",
                 case=get_case("systemverilog-signed-width"),
                 ablation="retrieval",
-                retrieval_pack=ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
+                retrieval_database=retrieval_database,
             )
             database_path = workspace / ".rtl-ass" / "eval.db"
             expected_hash = hash_file(database_path)
             database = KnowledgeDatabase(database_path)
-            results = database.search("signed width", namespaces=["eval:retrieval"], limit=3, match_mode="any")
+            results = database.search(
+                "signed width",
+                namespaces=["eval:retrieval"],
+                limit=3,
+                status=RecordStatus.VERIFIED,
+                match_mode="any",
+            )
             receipt = build_retrieval_receipt(
                 results,
                 actor="codex",
@@ -201,7 +359,7 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                 namespaces=["eval:retrieval"],
                 limit=3,
                 role=None,
-                status=None,
+                status="verified",
                 match_mode="any",
             )
             write_retrieval_receipt(receipt, workspace / "retrieval.json")
@@ -215,6 +373,8 @@ class CodexWorkflowTraceTests(unittest.TestCase):
             )
             self.assertTrue(valid["database_integrity"]["unchanged"])
             self.assertEqual(valid["valid_receipt_count"], 1)
+            self.assertEqual(valid["calibrated_receipt_count"], 1)
+            self.assertEqual(valid["calibrated_returned_result_ids"], [str(results[0]["id"])])
 
             original_database = database_path.read_bytes()
             database_path.write_bytes(original_database + b"changed")
@@ -275,6 +435,34 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         self.assertEqual(efficiency["redundant_evidence_execution_count"], 1)
         self.assertEqual(efficiency["successful_ready_gate_command_index"], 0)
         self.assertEqual(efficiency["post_ready_eda_commands"], [{"command_index": 1, "evidence_kinds": ["synthesis"]}])
+        self.assertEqual(efficiency["failed_rtl_ass_entrypoint_commands"], [])
+
+    def test_workflow_efficiency_flags_missing_bare_rtl_ass_entrypoint(self) -> None:
+        trace = {
+            "commands": [
+                {
+                    "command": "rtl-ass kb search signed --status verified --output retrieval.json",
+                    "status": "failed",
+                    "exit_code": 127,
+                },
+                {
+                    "command": (
+                        "python3 .agents/skills/rtl-ass/scripts/rtl_ass.py "
+                        "kb search signed --status verified --output retrieval.json"
+                    ),
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+            ]
+        }
+
+        efficiency = _workflow_efficiency(trace, [])
+
+        self.assertFalse(efficiency["efficient"])
+        self.assertEqual(
+            efficiency["failed_rtl_ass_entrypoint_commands"],
+            [{"command_index": 0, "exit_code": 127}],
+        )
 
     def test_unsatisfied_ready_gate_does_not_create_post_ready_findings(self) -> None:
         trace = {
@@ -295,6 +483,54 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         self.assertTrue(efficiency["efficient"])
         self.assertIsNone(efficiency["successful_ready_gate_command_index"])
         self.assertEqual(efficiency["post_ready_eda_commands"], [])
+
+    def test_workflow_mechanisms_use_observable_event_order_and_exact_retries(self) -> None:
+        failed_simulation = {
+            "command": "rtl-ass verify simulate --manifest compile.json --artifact-dir artifacts/sim",
+            "status": "failed",
+            "exit_code": 2,
+            "event_index": 4,
+        }
+        successful_simulation = {**failed_simulation, "status": "completed", "exit_code": 0, "event_index": 8}
+        mechanisms = _workflow_mechanisms(
+            {
+                "first_file_change_event_index": 6,
+                "file_change_events": [
+                    {"path": "$WORKSPACE/artifacts/testbench.sv", "kind": "add", "event_index": 6},
+                    {"path": "$WORKSPACE/rtl/dut.sv", "kind": "update", "event_index": 10},
+                ],
+                "commands": [
+                    {
+                        "command": "rtl-ass inspect . --summary",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "event_index": 1,
+                    },
+                    {
+                        "command": "rtl-ass manifest validate compile.json",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "event_index": 2,
+                    },
+                    failed_simulation,
+                    successful_simulation,
+                    {
+                        "command": "rtl-ass inspect .",
+                        "status": "completed",
+                        "exit_code": 0,
+                        "event_index": 9,
+                    },
+                ],
+            },
+            tracked_paths={"rtl/dut.sv"},
+        )
+
+        self.assertTrue(mechanisms["bounded_project_summary_before_first_tracked_change"])
+        self.assertTrue(mechanisms["unbounded_project_inspection_before_first_tracked_change"])
+        self.assertTrue(mechanisms["manifest_validated_before_first_evidence"])
+        self.assertTrue(mechanisms["baseline_evidence_before_first_tracked_change"])
+        self.assertEqual(mechanisms["failed_command_count"], 1)
+        self.assertEqual(mechanisms["recovered_exact_retry_count"], 1)
 
     def test_reasoning_effort_axis_covers_current_gpt_5_6_contract(self) -> None:
         self.assertEqual(REASONING_EFFORTS, ("none", "low", "medium", "high", "xhigh", "max"))
@@ -390,7 +626,7 @@ class CodexWorkflowTraceTests(unittest.TestCase):
 
     def test_command_policy_detects_nested_network_vendor_and_agent_commands(self) -> None:
         findings = _command_policy_findings(
-            '/bin/bash -lc "curl https://example.invalid; vivado -mode batch; python3 -m openai"'
+            '/bin/bash -lc "TOKEN=redacted curl https://example.invalid; vivado -mode batch; python3 -m openai"'
         )
 
         self.assertEqual(
@@ -426,6 +662,252 @@ class CodexWorkflowTraceTests(unittest.TestCase):
         self.assertFalse(audit["compliant"])
         self.assertEqual(audit["executed_evidence_outside_case_policy"], ["synthesis"])
         self.assertEqual(audit["violations"], [])
+
+    def test_workflow_audit_rejects_warning_demotion_for_required_lint(self) -> None:
+        case = get_case("systemverilog-signed-width")
+        trace = {
+            "commands": [
+                {
+                    "command": (
+                        "mkdir -p artifacts/lint && set -o pipefail\n"
+                        "verilator --lint-only -Wall --Wno-fatal rtl/sat_add_pipe.sv"
+                    ),
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+                {
+                    "command": "verilator --lint-only -Wno-fatal rtl/sat_add_pipe.sv",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+            ],
+            "skill_signals": ["skill-file-read"],
+            "invalid_jsonl_lines": 0,
+            "executed_evidence_kinds": ["lint"],
+        }
+
+        audit = _workflow_audit(trace, case, "on", {"protected_files_unchanged": True})
+
+        self.assertFalse(audit["compliant"])
+        self.assertEqual(
+            audit["lint_warning_demotion_commands"],
+            [
+                {"command_index": 0, "status": "completed", "exit_code": 0},
+                {"command_index": 1, "status": "completed", "exit_code": 0},
+            ],
+        )
+        self.assertIn(
+            {"reason": "required-lint-warning-demotion-forbidden", "command_indices": [0, 1]},
+            audit["violations"],
+        )
+
+    def test_workflow_audit_enforces_case_mechanisms_only_when_skill_is_available(self) -> None:
+        base = get_case("waveform-first-divergence")
+        case = dataclasses.replace(
+            base, skill_required_mechanisms=frozenset({"manifest_validated_before_first_evidence"})
+        )
+        trace = {
+            "commands": [],
+            "skill_signals": [],
+            "invalid_jsonl_lines": 0,
+            "executed_evidence_kinds": [],
+        }
+
+        native = _workflow_audit(trace, case, "off", {"protected_files_unchanged": True})
+        skill = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            workflow_mechanisms={"manifest_validated_before_first_evidence": False},
+        )
+
+        self.assertTrue(native["compliant"])
+        self.assertFalse(skill["compliant"])
+        self.assertEqual(
+            skill["violations"],
+            [
+                {
+                    "reason": "required-skill-mechanism-missing",
+                    "mechanism": "manifest_validated_before_first_evidence",
+                }
+            ],
+        )
+
+    def test_retrieval_ablation_rejects_rtl_ass_eda_adapter_attempts(self) -> None:
+        case = get_case("systemverilog-signed-width")
+        trace = {
+            "commands": [
+                {
+                    "command": "rtl-ass kb search signed --status verified --namespace eval:retrieval",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+                {
+                    "command": "rtl-ass verify simulate --source rtl/dut.sv --top dut --artifact-dir artifacts/sim",
+                    "status": "failed",
+                    "exit_code": 2,
+                },
+                {
+                    "command": "iverilog -g2012 -o artifacts/direct.vvp rtl/dut.sv tb/dut_tb.sv",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+            ],
+            "skill_signals": ["skill-file-read"],
+            "invalid_jsonl_lines": 0,
+            "executed_evidence_kinds": ["simulation"],
+        }
+
+        audit = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+        )
+
+        self.assertFalse(audit["compliant"])
+        self.assertEqual(audit["rtl_ass_eda_adapter_policy"], "forbidden")
+        self.assertEqual(
+            audit["rtl_ass_eda_adapter_commands"],
+            [{"command_index": 1, "evidence_kinds": ["simulation"], "status": "failed", "exit_code": 2}],
+        )
+        self.assertIn(
+            {
+                "reason": "rtl-ass-eda-adapter-forbidden-in-retrieval-ablation",
+                "command_indices": [1],
+            },
+            audit["violations"],
+        )
+
+        product_audit = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="product",
+        )
+        self.assertIn(
+            {
+                "reason": "rtl-ass-eda-adapter-forbidden-in-product-comparison",
+                "command_indices": [1],
+            },
+            product_audit["violations"],
+        )
+
+    def test_retrieval_ablation_requires_relevant_inspection_but_allows_irrelevant_rejection(self) -> None:
+        case = get_case("systemverilog-signed-width")
+        trace = {
+            "commands": [],
+            "skill_signals": ["skill-file-read"],
+            "invalid_jsonl_lines": 0,
+            "executed_evidence_kinds": [],
+        }
+
+        missing = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+            knowledge_retrieval={
+                "calibrated_receipt_count": 0,
+                "calibrated_inspected_result_ids": [],
+            },
+            retrieval_treatment={"treatment": "relevant"},
+        )
+        inspected = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+            knowledge_retrieval={
+                "calibrated_receipt_count": 1,
+                "calibrated_inspected_result_ids": ["card-id"],
+            },
+            retrieval_treatment={"treatment": "relevant"},
+        )
+        rejected_irrelevant = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+            knowledge_retrieval={
+                "calibrated_receipt_count": 1,
+                "calibrated_inspected_result_ids": [],
+            },
+            retrieval_treatment={"treatment": "plausible-irrelevant"},
+        )
+
+        self.assertFalse(missing["compliant"])
+        self.assertIn({"reason": "calibrated-retrieval-receipt-missing"}, missing["violations"])
+        self.assertIn({"reason": "calibrated-retrieval-result-not-inspected"}, missing["violations"])
+        self.assertTrue(inspected["compliant"])
+        self.assertTrue(rejected_irrelevant["compliant"])
+        self.assertFalse(rejected_irrelevant["calibrated_inspection_required"])
+
+        empty_control = _workflow_audit(
+            trace,
+            case,
+            "off",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+            knowledge_retrieval={
+                "valid_receipt_count": 1,
+                "calibrated_receipt_count": 0,
+                "calibrated_inspected_result_ids": [],
+            },
+        )
+        missing_empty_control = _workflow_audit(
+            trace,
+            case,
+            "off",
+            {"protected_files_unchanged": True},
+            ablation="retrieval",
+            knowledge_retrieval={
+                "valid_receipt_count": 0,
+                "calibrated_receipt_count": 0,
+                "calibrated_inspected_result_ids": [],
+            },
+        )
+
+        self.assertTrue(empty_control["compliant"])
+        self.assertEqual(
+            missing_empty_control["violations"],
+            [{"reason": "empty-control-retrieval-receipt-missing"}],
+        )
+
+        native_product = _workflow_audit(
+            {**trace, "skill_signals": []},
+            case,
+            "off",
+            {"protected_files_unchanged": True},
+            ablation="product",
+            knowledge_retrieval={},
+        )
+        product_missing_guidance = _workflow_audit(
+            trace,
+            case,
+            "on",
+            {"protected_files_unchanged": True},
+            ablation="product",
+            knowledge_retrieval={
+                "calibrated_receipt_count": 0,
+                "calibrated_inspected_result_ids": [],
+            },
+            retrieval_treatment={"treatment": "relevant"},
+        )
+        self.assertTrue(native_product["compliant"])
+        self.assertEqual(
+            product_missing_guidance["violations"],
+            [
+                {"reason": "calibrated-retrieval-receipt-missing"},
+                {"reason": "calibrated-retrieval-result-not-inspected"},
+            ],
+        )
 
     def test_wilson_interval_is_bounded_and_handles_empty_samples(self) -> None:
         self.assertIsNone(_wilson_interval(0, 0))
@@ -645,7 +1127,7 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                     "type": "item.completed",
                     "item": {
                         "type": "command_execution",
-                        "command": "/bin/bash -lc \"rg -n 'verification' .agents/skills/rtl-ass/SKILL.md\"",
+                        "command": "/bin/bash -lc \"LC_ALL=C rg -n 'verification' .agents/skills/rtl-ass/SKILL.md\"",
                         "status": "completed",
                         "exit_code": 0,
                     },
@@ -654,7 +1136,9 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                     "type": "item.completed",
                     "item": {
                         "type": "command_execution",
-                        "command": ("/bin/bash -lc 'python3 .agents/skills/rtl-ass/scripts/rtl_ass.py --version'"),
+                        "command": (
+                            "/bin/bash -lc 'PYTHONPATH=src python3 .agents/skills/rtl-ass/scripts/rtl_ass.py --version'"
+                        ),
                         "status": "completed",
                         "exit_code": 0,
                     },
@@ -796,18 +1280,136 @@ class CodexWorkflowTraceTests(unittest.TestCase):
 
 
 class CodexWorkflowFixtureTests(unittest.TestCase):
-    def test_retrieval_ablation_pack_is_bounded_and_distinct_from_case_artifacts(self) -> None:
-        case = get_case("systemverilog-signed-width")
-        result = _validate_retrieval_ablation_pack(
-            ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
-            case,
-        )
+    @unittest.skipUnless(shutil.which("iverilog") and shutil.which("vvp"), "Icarus Verilog is optional")
+    def test_signed_width_calibrator_builds_a_real_verified_database(self) -> None:
+        script = ROOT / "evals" / "retrieval_packs" / "signed-width" / "calibrate.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            database_path = root / "calibrated.db"
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = (ROOT / "src").as_posix()
+            command = [
+                shutil.which("python3") or "python3",
+                script.as_posix(),
+                "--output",
+                database_path.as_posix(),
+            ]
+            result = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            validation = _validate_retrieval_ablation_database(
+                database_path,
+                get_case("systemverilog-signed-width"),
+            )
+            database = KnowledgeDatabase(database_path)
+            record = database.get_record(str(payload["record_id"]))
+            repeated = subprocess.run(
+                command,
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            symlink_path = root / "calibrated-link.db"
+            symlink_path.symlink_to(root / "missing-target.db")
+            symlinked = subprocess.run(
+                [*command[:-1], symlink_path.as_posix()],
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+
+        self.assertEqual(payload["record_status"], "verified")
+        self.assertIs(payload["audit_chain"]["valid"], True)
+        self.assertEqual(validation["status"], "pass")
+        self.assertEqual(record["status"], "verified")
+        self.assertNotEqual(repeated.returncode, 0)
+        self.assertIn("refusing to overwrite", repeated.stderr)
+        self.assertNotEqual(symlinked.returncode, 0)
+        self.assertIn("refusing to overwrite", symlinked.stderr)
+
+    @unittest.skipUnless(shutil.which("iverilog") and shutil.which("vvp"), "Icarus Verilog is optional")
+    def test_plausible_irrelevant_calibrator_rejects_a_real_protocol_mutation(self) -> None:
+        script = ROOT / "evals" / "retrieval_packs" / "signed-width" / "calibrate.py"
+        with tempfile.TemporaryDirectory() as temporary:
+            database_path = Path(temporary) / "plausible-irrelevant.db"
+            environment = os.environ.copy()
+            environment["PYTHONPATH"] = (ROOT / "src").as_posix()
+            result = subprocess.run(
+                [
+                    shutil.which("python3") or "python3",
+                    script.as_posix(),
+                    "--treatment",
+                    "plausible-irrelevant",
+                    "--output",
+                    database_path.as_posix(),
+                ],
+                cwd=ROOT,
+                env=environment,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            payload = json.loads(result.stdout)
+            validation = _validate_retrieval_ablation_database(
+                database_path,
+                get_case("systemverilog-signed-width"),
+            )
+            record = KnowledgeDatabase(database_path).get_record(str(payload["record_id"]))
+
+        self.assertEqual(payload["treatment"], "plausible-irrelevant")
+        self.assertEqual(payload["record_status"], "verified")
+        self.assertEqual(validation["record_count"], 1)
+        self.assertEqual(record["verification"]["required_kinds"], ["mutation"])
+
+    def test_retrieval_ablation_database_requires_calibrated_contamination_reviewed_cards(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            case = get_case("systemverilog-signed-width")
+            calibrated = _build_calibrated_retrieval_database(root)
+            result = _validate_retrieval_ablation_database(calibrated, case)
+
+            raw_database = root / "raw.db"
+            raw = KnowledgeDatabase(raw_database)
+            raw.initialize(actor="test-harness")
+            raw.add_record(
+                KnowledgeRecordInput(
+                    namespace="eval:retrieval",
+                    role=RecordRole.DESIGN_PATTERN,
+                    language="markdown",
+                    title="uncalibrated card",
+                    summary="must not enter a product retrieval comparison",
+                    content="raw guidance\n",
+                    license_spdx="Apache-2.0",
+                    license_status=LicenseStatus.KNOWN,
+                    metadata={
+                        "contamination_review": ("no-task-source-no-test-no-reference-no-patch-no-grader-output")
+                    },
+                ),
+                actor="test-harness",
+            )
+            with self.assertRaises(RtlAssError) as caught:
+                _validate_retrieval_ablation_database(raw_database, case)
 
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["record_count"], 1)
+        self.assertEqual(result["record_statuses"], ["verified"])
         self.assertFalse(result["direct_hash_overlap"])
-        with self.assertRaises(RtlAssError) as caught:
-            _validate_retrieval_ablation_pack(ROOT / "library" / "starter" / "pack.json", case)
         self.assertEqual(caught.exception.code, "unsafe_retrieval_ablation")
 
     def test_retrieval_ablation_keeps_skill_constant_and_changes_only_index_population(self) -> None:
@@ -815,32 +1417,69 @@ class CodexWorkflowFixtureTests(unittest.TestCase):
             root = Path(temporary)
             off_workspace = root / "off"
             on_workspace = root / "on"
-            pack = ROOT / "library" / "starter" / "pack.json"
+            retrieval_database = _build_calibrated_retrieval_database(root)
 
-            _prepare_workspace(off_workspace, "off", ablation="retrieval", retrieval_pack=pack)
-            _prepare_workspace(on_workspace, "on", ablation="retrieval", retrieval_pack=pack)
+            _prepare_workspace(
+                off_workspace,
+                "off",
+                ablation="retrieval",
+                retrieval_database=retrieval_database,
+            )
+            _prepare_workspace(
+                on_workspace,
+                "on",
+                ablation="retrieval",
+                retrieval_database=retrieval_database,
+            )
 
             for workspace in (off_workspace, on_workspace):
                 self.assertTrue((workspace / ".agents" / "skills" / "rtl-ass" / "SKILL.md").is_file())
                 self.assertTrue((workspace / ".rtl-ass" / "eval.db").is_file())
             off_results = KnowledgeDatabase(off_workspace / ".rtl-ass" / "eval.db").search(
-                "ready", namespaces=["eval:retrieval"], limit=3
+                "signed", namespaces=["eval:retrieval"], limit=3, status=RecordStatus.VERIFIED
             )
             on_results = KnowledgeDatabase(on_workspace / ".rtl-ass" / "eval.db").search(
-                "ready", namespaces=["eval:retrieval"], limit=3
+                "signed", namespaces=["eval:retrieval"], limit=3, status=RecordStatus.VERIFIED
             )
 
         self.assertEqual(off_results, [])
         self.assertGreater(len(on_results), 0)
 
-    def test_retrieval_ablation_requires_pack_and_skill_ablation_rejects_it(self) -> None:
+    def test_product_ablation_compares_native_against_skill_plus_relevant_knowledge(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            pack = ROOT / "library" / "starter" / "pack.json"
+            retrieval_database = _build_calibrated_retrieval_database(root)
+            off_workspace = root / "product-off"
+            on_workspace = root / "product-on"
+
+            _prepare_workspace(
+                off_workspace,
+                "off",
+                ablation="product",
+                retrieval_database=retrieval_database,
+            )
+            _prepare_workspace(
+                on_workspace,
+                "on",
+                ablation="product",
+                retrieval_database=retrieval_database,
+            )
+
+            self.assertFalse((off_workspace / ".agents" / "skills" / "rtl-ass").exists())
+            self.assertFalse((off_workspace / ".rtl-ass" / "eval.db").exists())
+            self.assertNotIn("approved evaluation index", (off_workspace / "AGENTS.md").read_text(encoding="utf-8"))
+            self.assertTrue((on_workspace / ".agents" / "skills" / "rtl-ass" / "SKILL.md").is_file())
+            self.assertTrue((on_workspace / ".rtl-ass" / "eval.db").is_file())
+            self.assertIn("approved evaluation index", (on_workspace / "AGENTS.md").read_text(encoding="utf-8"))
+
+    def test_retrieval_ablation_requires_database_and_skill_ablation_rejects_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            retrieval_database = _build_calibrated_retrieval_database(root)
             with self.assertRaisesRegex(ValueError, "requires exactly one"):
                 _prepare_workspace(root / "missing", "off", ablation="retrieval")
             with self.assertRaisesRegex(ValueError, "requires exactly one"):
-                _prepare_workspace(root / "unexpected", "off", retrieval_pack=pack)
+                _prepare_workspace(root / "unexpected", "off", retrieval_database=retrieval_database)
 
     def test_outer_bwrap_mounts_only_explicit_payloads_and_drops_agent_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

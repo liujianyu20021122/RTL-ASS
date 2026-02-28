@@ -1,5 +1,11 @@
 # RTL verification guidance
 
+## Select the flow before the evidence
+
+Preserve the user's selected verification tool or command flow. If none was selected, use an applicable documented project-local flow that the user has not forbidden. Do not run an RTL-ASS EDA adapter merely because this reference describes it or its executable is present on `PATH`.
+
+When executed verification is required but neither prior option is usable or permitted, ask the user to confirm both that no other local tool or flow should be used because it is unavailable or disallowed and that the named RTL-ASS fallback backend may run. An earlier explicit request for that helper/backend is already a user-selected flow. See [tool-selection.md](tool-selection.md) for the complete inventory. Without confirmation, report the evidence as `not_evaluated` and explain why.
+
 ## Build checks from requirements
 
 For every requirement, identify stimulus, observation point, sampling phase, expected response, timeout, and failure message. Keep the oracle independent of implementation details when possible.
@@ -23,6 +29,8 @@ Use the least expensive evidence that answers the current question, then increas
 6. synthesis and timing evidence for implementation claims.
 
 Do not collapse these into one pass/fail flag.
+
+A lint run is passing only under the selected flow's declared warning policy. Do not add warning-demotion flags such as `-Wno-fatal` merely to obtain a zero exit status, and do not call warnings “expected” without an explicit reviewed allowlist or waiver. Otherwise resolve each warning at its responsible RTL, checker, or configuration boundary before claiming lint success.
 
 ## Verification plan and stopping gate
 
@@ -64,11 +72,11 @@ rtl-ass verify summarize --plan verification-plan.json \
   --require-ready
 ```
 
-Optional evidence does not block readiness. The summary rechecks current subjects, raw artifacts, and evidence JSON; it reports duplicate `(kind, input_hash)` executions and retry-budget excess. If `--require-ready` succeeds, stop running EDA tools and deliver. If an input changes, the old record becomes stale and cannot close the plan.
+Optional evidence does not block readiness. The summary rechecks current subjects, raw artifacts, and evidence JSON; it reports duplicate `(kind, input_hash)` executions and retry-budget excess. If `--require-ready` succeeds, stop running EDA tools and deliver. If an input changes, moves, or is deleted, the old record becomes stale and cannot close the plan. This includes the CompileManifest itself: retain it at its recorded path through delivery rather than deleting a root-level manifest during cleanup.
 
-For a material post-change check, prefer the RTL-ASS `verify` subcommands over an unrecorded final command when the helper is available. Each evidence class must use the exact ordered sources and top for that check, live in its own artifact directory, and end with an inspected `run-evidence.json`. Ad hoc commands remain useful for diagnosis but do not replace the normalized final record.
+For a user-selected or project-local flow, retain its exact commands and artifacts; do not rerun the check through RTL-ASS merely to obtain normalized JSON. For an explicitly authorized RTL-ASS fallback, each evidence class must use the exact ordered sources and top for that check, live in its own artifact directory, and end with an inspected `run-evidence.json`.
 
-Use one validated CompileManifest when the build needs include directories, library files, defines, parameter overrides, or an explicit language mode. The manifest paths are relative to its own directory. Pass the same manifest to lint, simulation, synthesis, and formal runs so backend differences cannot silently change elaboration. Inline `--source` remains suitable for small checks but cannot be mixed with `--manifest`.
+Use one validated CompileManifest when the build needs include directories, library files, defines, parameter overrides, or an explicit language mode. The manifest paths are relative to its own directory and cannot contain `..`; place it at or above the complete source closure. Pass the same retained manifest to lint, simulation, synthesis, and formal runs so backend differences cannot silently change elaboration. Inline `--source` remains suitable for small checks but cannot be mixed with `--manifest`.
 
 ```json
 {
@@ -83,7 +91,7 @@ Use one validated CompileManifest when the build needs include directories, libr
 }
 ```
 
-Icarus is the default simulation backend and is useful for quick self-checking testbenches. Select `--backend verilator` for an independent compiled simulation frontend. Backend agreement strengthens confidence only when both runs use the same manifest and checker; it is not a substitute for inspecting the checker contract.
+Within an authorized RTL-ASS fallback, Icarus is the default simulation backend and is useful for quick self-checking testbenches. Select `--backend verilator` only when an independent compiled simulation frontend answers a distinct requested claim. Backend agreement strengthens confidence only when both runs use the same manifest and checker; it is not a substitute for inspecting the checker contract.
 
 Interpret the recorded phase before attributing a failed run. `not_available` means discovery did not find a required tool; a launch failure is `blocked`; a nonzero compiler result is `fail`; and a zero-result compile without its promised executable is `blocked` with `missing_compiled_artifact`. A failed version probe leaves `tool.version` as `unknown` and retains the probe diagnostic separately. None of these infrastructure or elaboration states alone proves an RTL behavioral defect.
 

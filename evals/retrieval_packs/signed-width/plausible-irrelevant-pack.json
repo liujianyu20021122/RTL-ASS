@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "name": "rtl-ass-ready-valid-width-negative-control",
+  "version": "1.0.0",
+  "description": "Contamination-reviewed ready/valid payload-width guidance used as a plausible but irrelevant control for the signed-arithmetic retrieval evaluation.",
+  "license_spdx": "Apache-2.0",
+  "records": [
+    {
+      "key": "ready-valid-payload-width",
+      "role": "design-pattern",
+      "language": "markdown",
+      "title": "Preserve parameterized ready/valid payload widths",
+      "summary": "Width, reset, backpressure, and latency checks for an opaque ready/valid payload path.",
+      "content_hash": "cd8e02ec241c925f97f77e5e4f60ec74fff8b36d38b019bcd4dc789c8f52ce09",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "sha256:cd8e02ec241c925f97f77e5e4f60ec74fff8b36d38b019bcd4dc789c8f52ce09",
+      "source_path": "evals/retrieval_packs/signed-width/cards/ready-valid-payload-width.md",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {
+        "contamination_review": "no-task-source-no-test-no-reference-no-patch-no-grader-output",
+        "evaluation_case_class": "protocol-control",
+        "scope": "ready-valid-payload-transport"
+      },
+      "content_path": "cards/ready-valid-payload-width.md"
+    }
+  ],
+  "links": [],
+  "pack_hash": "9aba983b8cfaaff8c86bfc416c1b39c4407a25808924e478dd9d74391c57aab7"
+}

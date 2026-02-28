@@ -91,6 +91,20 @@ class SkillContractTests(unittest.TestCase):
         for relative_path in reference_paths:
             self.assertTrue((SKILL_ROOT / relative_path).is_file(), relative_path)
 
+    def test_knowledge_examples_use_the_portable_skill_launcher(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        fenced_commands = re.findall(r"```bash\n(.*?)```", skill, flags=re.DOTALL)
+        knowledge_commands = [
+            line
+            for block in fenced_commands
+            for line in block.splitlines()
+            if line and not line.startswith(" ") and " kb " in line
+        ]
+        self.assertGreaterEqual(len(knowledge_commands), 4)
+        self.assertTrue(
+            all(line.startswith("python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb ") for line in knowledge_commands)
+        )
+
     def test_openai_metadata_invokes_the_exact_skill_name(self) -> None:
         metadata = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("$rtl-ass", metadata)

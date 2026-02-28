@@ -6,10 +6,15 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from typing import Any
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 from referencing import Registry, Resource
 
+from evals.knowledge_application import validate_usage
+from evals.retrieval_treatment import validate_retrieval_treatment
+from evals.run_codex_ab import _retrieval_case_identity
+from evals.workflow_cases import get_case
 from rtl_ass.evidence import run_iverilog_simulation, run_yosys_equivalence, run_yosys_formal
 from rtl_ass.kb.database import KnowledgeDatabase
 from rtl_ass.kb.gates import build_observation_set, build_verification_gate
@@ -29,6 +34,42 @@ def validate_instance(schema: dict[str, object], instance: object) -> None:
 
 
 class SchemaContractTests(unittest.TestCase):
+    def test_knowledge_usage_matches_schema_and_rejects_unsafe_targets(self) -> None:
+        value: dict[str, Any] = {
+            "schema_version": "1.0",
+            "uses": [
+                {
+                    "record_id": "source",
+                    "content_hash": "a" * 64,
+                    "decision": "applied",
+                    "reason": "preserve stalls",
+                    "target": "rtl/design.sv",
+                    "target_hash": "b" * 64,
+                    "constraints": ["stability"],
+                }
+            ],
+        }
+        validate_instance(SCHEMAS["knowledge-use.schema.json"], validate_usage(value))
+        checker = Draft202012Validator(SCHEMAS["knowledge-use.schema.json"])
+        for target in ("../design.sv", "/design.sv", "a/../design.sv", "a//b.sv", "a\\b.sv"):
+            value["uses"][0]["target"] = target
+            self.assertFalse(checker.is_valid(value), target)
+        value["uses"][0].update(decision="rejected", target=None, target_hash=None, constraints=[])
+        validate_instance(SCHEMAS["knowledge-use.schema.json"], validate_usage(value))
+
+    def test_retrieval_treatment_matches_declared_contract(self) -> None:
+        treatment_root = ROOT / "evals" / "retrieval_packs" / "signed-width"
+        case = get_case("systemverilog-signed-width")
+        for name in ("relevant-treatment.json", "plausible-irrelevant-treatment.json"):
+            treatment = json.loads((treatment_root / name).read_text(encoding="utf-8"))
+            validated = validate_retrieval_treatment(
+                treatment,
+                expected_case_identity=_retrieval_case_identity(case),
+                calibrated_record_hashes=treatment["record_content_hashes"],
+            )
+            with self.subTest(name=name):
+                validate_instance(SCHEMAS["retrieval-treatment.schema.json"], validated)
+
     def test_retrieval_receipt_matches_declared_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = KnowledgeDatabase(Path(directory) / "index.db")

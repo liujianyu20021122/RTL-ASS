@@ -3,7 +3,7 @@ schema_version = 1
 [knowledge]
 database = ".rtl-ass/index.db"
 default_namespace = "project:default"
-search_limit = 5
+search_limit = 3
 
 [project]
 max_source_bytes = 5242880

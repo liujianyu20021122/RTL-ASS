@@ -15,6 +15,18 @@ from rtl_ass.kb.schema import SCHEMA_VERSION
 
 
 class CliTests(unittest.TestCase):
+    def test_inspect_summary_omits_unbounded_file_arrays(self) -> None:
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            status = main(["inspect", str(Path(__file__).parent / "fixtures"), "--summary"])
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertTrue(payload["summary_only"])
+        self.assertNotIn("files", payload)
+        self.assertNotIn("skipped", payload)
+        self.assertGreaterEqual(payload["file_count"], 2)
+
     def test_verification_plan_and_summary_are_machine_readable(self) -> None:
         plan = {
             "schema_version": "1.0",

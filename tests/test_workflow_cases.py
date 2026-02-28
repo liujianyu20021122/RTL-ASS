@@ -27,6 +27,7 @@ class WorkflowCaseTests(unittest.TestCase):
                 "systemverilog-signed-width",
                 "timing-refine-priority-path",
                 "waveform-first-divergence",
+                "packet-tag-skid",
             },
         )
         for case in CASES.values():

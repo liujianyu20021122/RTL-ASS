@@ -1,12 +1,14 @@
 # Open synthesis, formal, and STA evidence
 
+This reference defines claim semantics, not permission to run an RTL-ASS adapter. Preserve the user's selected tool, otherwise use an applicable project-local flow. Read [tool-selection.md](tool-selection.md) and obtain the required explicit confirmation before using an RTL-ASS fallback.
+
 ## Tool roles
 
 - Verilator/Icarus: parsing, linting, elaboration, and simulation evidence.
 - Yosys: synthesizability, transformed netlist, cell/resource statistics, bounded SAT property checks, and equivalence plumbing.
 - SymbiYosys/EQY with an open solver: stronger property and equivalence flows when the selected engine and proof mode are recorded.
 - OpenSTA: timing analysis from a real netlist, Liberty data, and SDC.
-- OpenROAD: optional physical-context implementation evidence when an open PDK and flow are available.
+- OpenROAD: visible to `doctor` as discovery-only; RTL-ASS currently has no OpenROAD evidence adapter.
 
 ## Evidence boundaries
 
@@ -14,7 +16,7 @@ Yosys `stat` is not STA. Generic delay estimates are not signoff. OpenSTA withou
 
 A finite SAT depth is bounded evidence, not an unbounded proof. Bind the depth, top, ordered source hashes, initialization policy, assumptions, and defined-input policy into the run identity. Reject an empty assertion scope. Preserve a generated counterexample waveform on failure, and classify syntax/elaboration/tool failures as `blocked` rather than a disproved property.
 
-`verify formal --backend yosys` runs the direct bounded SAT adapter. `--backend sby` writes and runs a native SymbiYosys BMC job with the selected open SMT solver. Treat the SBY status marker as authoritative only when it is well formed; a reported failure requires a retained VCD counterexample before it becomes negative evidence.
+When the RTL-ASS fallback has been authorized, `verify formal --backend yosys` runs the direct bounded SAT adapter and `--backend sby` writes and runs a native SymbiYosys BMC job with the selected open SMT solver. Treat the SBY status marker as authoritative only when it is well formed; a reported failure requires a retained VCD counterexample before it becomes negative evidence.
 
 Equivalence must bind separate reference and implementation identities. Depth 1 supports a combinational `$equiv` check after compatible elaboration. A larger depth uses a bounded miter/SAT check and requires the explicit `--initialization zero` contract; never infer initial-state or reset synchronization from structural similarity. This preserves explicit source initial values and defaults otherwise-unspecified state to zero, so different source initial values remain a mismatch. Use a separate reset simulation or formal harness when the contract instead depends on a reset sequence; do not relabel the zero-default result. The default `--input-domain defined` proves ordinary hardware bit behavior. Use `--input-domain undefined` only when X/undefined propagation is part of the stated contract; algebraically equivalent topologies can intentionally differ there. Depth, initialization, and input domain are part of the evidence hash. A disproved miter or unproven `$equiv` cell is failed equivalence; interface, elaboration, or tool failures are blocked evidence.
 

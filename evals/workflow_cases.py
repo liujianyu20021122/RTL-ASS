@@ -18,6 +18,11 @@ from rtl_ass.evidence import (
 from rtl_ass.integrity import hash_file
 from rtl_ass.waveform import first_divergence_waveform
 
+if __package__:
+    from .file_application_case import grade_packet_stage
+else:
+    from file_application_case import grade_packet_stage  # type: ignore[import-not-found,no-redef]
+
 ROOT = Path(__file__).resolve().parents[1]
 CASES_ROOT = ROOT / "evals" / "workflow_cases"
 GradeFunction = Callable[[Path, Path, Mapping[str, str]], dict[str, Any]]
@@ -31,6 +36,8 @@ class WorkflowCase:
     required_evidence: frozenset[str]
     allowed_evidence: frozenset[str]
     grade: GradeFunction
+    skill_required_mechanisms: frozenset[str] = frozenset()
+    requires_knowledge_usage: bool = False
 
 
 def _regular_file(path: Path) -> bool:
@@ -545,6 +552,19 @@ def _waveform_divergence_grade(workspace: Path, run_root: Path, initial: Mapping
 
 
 CASES = {
+    "packet-tag-skid": WorkflowCase(
+        identifier="packet-tag-skid",
+        prompt="""Implement the packet tag skid stage specified in SPEC.md.
+Preserve its parameter, transform, throughput, backpressure, registered-boundary and synchronous reset contract.
+Use the project-selected direct Icarus and strict Verilator flow. Retain bounded self-checking tests and results.
+Complete the knowledge-use declaration specified in SPEC.md; distinguish a consulted reference from independently implemented behavior.
+""",
+        public_fixture=CASES_ROOT / "packet_tag_skid" / "public",
+        required_evidence=frozenset({"lint", "simulation"}),
+        allowed_evidence=frozenset({"lint", "simulation"}),
+        grade=grade_packet_stage,
+        requires_knowledge_usage=True,
+    ),
     "repair-non-power-of-two-fifo": WorkflowCase(
         identifier="repair-non-power-of-two-fifo",
         prompt="""Diagnose and minimally repair the depth-three synchronous FIFO in this repository.

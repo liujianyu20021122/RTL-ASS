@@ -2,7 +2,7 @@
 
 ## Mission
 
-RTL-ASS is an open-source, vendor-neutral Codex skill that strengthens Codex for RTL engineering. Codex remains responsible for understanding the user's intent, planning, editing RTL, reasoning about failures, and choosing the final implementation. RTL-ASS supplies domain-specific guidance, deterministic open-source tool helpers, structured evidence, and a verified local knowledge layer.
+RTL-ASS is an open-source, vendor-neutral, retrieval-first Codex skill that strengthens Codex for RTL engineering. Codex remains responsible for understanding the user's intent, planning, editing RTL, reasoning about failures, and choosing the final implementation. RTL-ASS primarily supplies calibrated, provenance-bearing knowledge records; deterministic open-source tool helpers and structured evidence are an explicitly authorized fallback.
 
 Do not turn RTL-ASS into a separate RTL coding agent, an autonomous replacement for Codex, or a fixed end-to-end EDA pipeline.
 
@@ -13,6 +13,8 @@ Do not turn RTL-ASS into a separate RTL coding agent, an autonomous replacement 
 - Do not add Vivado, Quartus, VCS, Verdi, Questa, Xcelium, or other proprietary/vendor tools as dependencies or required backends.
 - Do not call another LLM or create a hidden multi-agent coding service. Codex itself is the reasoning and coding engine.
 - Tool helpers return evidence; they do not decide what RTL patch Codex must apply.
+- Preserve a user-selected tool or verification flow. Otherwise prefer an applicable documented project-local flow. RTL-ASS EDA adapters may run only when verification is required and neither prior flow applies; Codex must ask the user to confirm both that no other local flow should be used because it is unavailable or disallowed and that the named fallback may run. An explicit request for an RTL-ASS backend is already a user-selected flow.
+- Read-only knowledge and record inspection are the default Skill mechanism. Do not run `doctor`, project inspection, verification planning, or EDA adapters merely because the helper exposes them.
 - Never claim STA closure without a real netlist, Liberty timing library, constraints, and an executed timing engine.
 - Never claim waveform analysis without reading a real waveform or simulator event artifact.
 - Treat SystemVerilog as a first-class language for synthesizable RTL, testbenches, assertions, interfaces, and packages.
@@ -52,6 +54,8 @@ Do not turn RTL-ASS into a separate RTL coding agent, an autonomous replacement 
 - Prefer minimal, reviewable RTL patches over whole-file rewrites during debugging.
 - Require Codex to distinguish specification, testbench, RTL, constraints, and infrastructure hypotheses before attributing a failure.
 - Treat compilation, simulation, waveform, formal, synthesis, and STA as distinct evidence classes.
+- Make calibrated retrieval the first Skill action when an in-scope database exists. Prefer `promoted`, then relevant `verified`, records; do not use `raw` or `candidate` records as default coding guidance.
+- Keep the complete optional-tool inventory and fallback authorization boundary in one canonical reference. Do not duplicate an EDA command catalog in `SKILL.md`.
 
 ## Knowledge Base Governance
 

@@ -32,6 +32,19 @@ class ProjectInspectionTests(unittest.TestCase):
         self.assertIn("rst_n", files["counter.sv"]["reset_hints"])
         self.assertIn("lexical hints", report["limitations"][0])
 
+    def test_summary_is_bounded_and_preserves_aggregate_counts(self) -> None:
+        detailed = inspect_project(FIXTURES)
+        summary = inspect_project(FIXTURES, summary_only=True)
+
+        self.assertTrue(summary["summary_only"])
+        self.assertNotIn("files", summary)
+        self.assertNotIn("skipped", summary)
+        self.assertEqual(summary["file_count"], detailed["file_count"])
+        self.assertEqual(summary["role_counts"], detailed["role_counts"])
+        self.assertEqual(summary["source_bytes"], sum(item["byte_count"] for item in detailed["files"]))
+        self.assertEqual(sum(summary["language_counts"].values()), summary["file_count"])
+        self.assertLessEqual(len(summary["top_level_counts"]), 32)
+
     def test_comment_stripping_preserves_string_and_line_count(self) -> None:
         source = 'module x; // module fake\ninitial $display("// not a comment"); /* block\ncomment */ endmodule\n'
         stripped = strip_comments(source)

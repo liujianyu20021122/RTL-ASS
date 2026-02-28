@@ -1,0 +1,36 @@
+{
+  "schema_version": "1.0",
+  "case_identity": {
+    "case_id": "systemverilog-signed-width",
+    "prompt_hash": "d2981249223873e77171ce2c9fb0f0adcaf70789c5470005f2e8950e170fe1f3",
+    "fixture_hash": "d81bd1ac3fa8e28575113c22b3ca540d21d8fd64b8aa91c7feb71b9f17c66977",
+    "hidden_grader_hash": "341bf0b1838c4b99178efc8208a012b5c50788ef00fcbb36b647ba67a5a9404f"
+  },
+  "treatment": "plausible-irrelevant",
+  "record_content_hashes": [
+    "cd8e02ec241c925f97f77e5e4f60ec74fff8b36d38b019bcd4dc789c8f52ce09"
+  ],
+  "query_concepts": [
+    "comparison operand sizing",
+    "signed arithmetic saturation",
+    "widened intermediate expression"
+  ],
+  "decision_targets": [
+    "comparison-width compatibility",
+    "intermediate-width selection",
+    "signedness preservation"
+  ],
+  "plausible_overlap": [
+    "latency and registered valid behavior",
+    "parameterized width terminology",
+    "reset behavior"
+  ],
+  "applicability_claims": [],
+  "non_applicability_claims": [
+    "The card treats payload bits as opaque data and supplies no numeric expression-sizing rule.",
+    "The task's decisive repair concerns signed arithmetic and saturation comparisons, not ready/valid backpressure."
+  ],
+  "contamination_review": "no-task-source-no-test-no-reference-no-patch-no-grader-output",
+  "reviewer": "RTL-ASS evaluation curator",
+  "reviewed_at": "2026-09-04T00:00:00+08:00"
+}

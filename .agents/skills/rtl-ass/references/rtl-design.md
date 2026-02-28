@@ -14,6 +14,7 @@ Record ports, parameters, accepted transactions, ordering, reset state, latency,
 ## Width and arithmetic
 
 - Derive intermediate widths deliberately. Check signedness at every mixed signed/unsigned boundary.
+- For arithmetic, comparisons, assignments, casts, and concatenations, make the intended operand width and signedness explicit on both sides; do not rely on implicit extension to preserve a mathematical range.
 - Make truncation, saturation, rounding, overflow, and division behavior part of the contract.
 - Validate parameter corner cases such as width one, depth one, non-power-of-two depth, and `$clog2` results.
 

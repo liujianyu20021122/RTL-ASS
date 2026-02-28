@@ -25,6 +25,7 @@ SKILL_FILES = (
     "references/rtl-design.md",
     "references/synthesis-sta.md",
     "references/task-routing.md",
+    "references/tool-selection.md",
     "references/verification.md",
     "references/waveform-debugging.md",
     "scripts/rtl_ass.py",

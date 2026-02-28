@@ -1,10 +1,10 @@
 # RTL-ASS architecture
 
-RTL-ASS has three deliberately separate layers.
+RTL-ASS has three deliberately separate layers, ordered by product priority.
 
-1. The Codex skill supplies compact task routing and RTL-specific references. It never replaces Codex as the author or decision-maker.
-2. Deterministic helpers inspect projects, discover open tools, index knowledge, and normalize evidence. They never choose RTL patches.
-3. The local knowledge store holds content-addressed records, explicit RTL/TB roles, lifecycle state, provenance, verification summaries, and append-only audit events.
+1. The local knowledge store holds content-addressed, calibrated records with explicit RTL/TB roles, lifecycle state, provenance, verification summaries, negative evidence, and append-only audit events.
+2. The Codex skill retrieves a bounded set of applicable records and supplies compact RTL-specific guidance. It never replaces Codex as the author or decision-maker.
+3. Deterministic helpers inspect projects, maintain the knowledge store, and optionally normalize evidence. External EDA execution is a user-confirmed fallback after user-selected and project-local flows, never the default Skill path; helpers never choose RTL patches.
 
 ## Trust boundary
 
@@ -27,6 +27,8 @@ Each committed mutation appends one audit event in the same transaction. Audit r
 Schema definition, audit-chain logic, migrations, record-store primitives, and public knowledge workflows have separate module ownership. Migrations are explicit version edges rather than compatibility heuristics. The v1-to-v2 edge rebuilds the audit table with non-null chain fields and validates the complete resulting chain inside the migration transaction.
 
 ## Verification evidence
+
+Tool selection occurs before adapter execution. A user-selected flow has priority, followed by an applicable documented project-local flow. The adapters below are eligible only when executed verification is required and neither prior flow applies; Codex must ask the user to confirm both that no other local flow should be used because it is unavailable or disallowed and that the named fallback may run. Direct user selection of an RTL-ASS backend is already a selected flow. `doctor` reports inventory and discovery only.
 
 The stable `evidence.py` facade owns backend dispatch and delegates to simulation/lint, Yosys, native formal-driver, and STA adapters. CompileManifest is the single compile boundary for language mode, ordered sources, library files, include directories, defines, parameters, and top. Shared bundles compose that complete identity with proof parameters, input-stability checks, artifact hashing, timeout normalization, process-outcome attribution, and the common evidence contract, so tool modules do not grow competing policy implementations. Version probes preserve nonzero output as a diagnostic rather than a version; simulation records distinguish missing tools, launch failures, compiler rejection, and a successful compiler that omitted its required output.
 

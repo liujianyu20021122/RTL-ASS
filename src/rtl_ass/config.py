@@ -22,7 +22,7 @@ class VerificationGate:
 class Settings:
     database: Path = Path(".rtl-ass/index.db")
     default_namespace: str = "project:default"
-    search_limit: int = 5
+    search_limit: int = 3
     max_source_bytes: int = 5 * 1024 * 1024
     follow_symlinks: bool = False
     verification_gates: tuple[VerificationGate, ...] = ()
@@ -53,7 +53,7 @@ def load_settings(path: str | Path | None = None) -> Settings:
 
     database = _string(knowledge, "database", ".rtl-ass/index.db")
     namespace = validate_identifier(_string(knowledge, "default_namespace", "project:default"), "default_namespace")
-    search_limit = _integer(knowledge, "search_limit", 5, minimum=1, maximum=50)
+    search_limit = _integer(knowledge, "search_limit", 3, minimum=1, maximum=50)
     max_source_bytes = _integer(project, "max_source_bytes", 5 * 1024 * 1024, minimum=1, maximum=100 * 1024 * 1024)
     follow_symlinks = _boolean(project, "follow_symlinks", False)
     gates = _verification_gates(verification.get("gates", {}))

@@ -20,7 +20,7 @@ class ConfigTests(unittest.TestCase):
     def test_example_configuration_is_fully_consumed(self) -> None:
         settings = load_settings(ROOT / "config" / "rtl-ass.example.toml")
         self.assertEqual(settings.default_namespace, "project:default")
-        self.assertEqual(settings.search_limit, 5)
+        self.assertEqual(settings.search_limit, 3)
         self.assertFalse(settings.follow_symlinks)
         self.assertEqual(settings.required_evidence_kinds(RecordRole.RTL_DESIGN), ("lint", "simulation"))
         self.assertEqual(settings.required_evidence_kinds(RecordRole.TESTBENCH), ("simulation",))
