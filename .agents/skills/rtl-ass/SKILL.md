@@ -1,0 +1,61 @@
+---
+name: rtl-ass
+description: Strengthen Codex for vendor-neutral Verilog/SystemVerilog RTL design, repository analysis, testbench and assertion work, simulation or waveform debugging, formal/synthesis/STA evidence, and retrieval from a verified local RTL knowledge base. Use for RTL engineering tasks that benefit from open-source tools; do not use as a replacement coding agent or for proprietary-tool-only operation.
+---
+
+# RTL-ASS
+
+Codex remains the engineer: inspect the user's project, reason about the specification, edit the RTL or testbench, and choose the final solution. Use RTL-ASS for domain-specific decisions, compact retrieval, and deterministic open-source evidence.
+
+## Route the task
+
+1. Preserve the user's interface, protocol, clock/reset, latency, language, and verification constraints.
+2. Classify the work as generation, analysis, debugging, verification, optimization, or knowledge curation. Read [task-routing.md](references/task-routing.md) when the task spans more than one class or the required evidence is unclear.
+3. Read only the relevant references:
+   - RTL architecture or coding: [rtl-design.md](references/rtl-design.md)
+   - Testbench, assertions, or correctness evidence: [verification.md](references/verification.md)
+   - Simulation mismatch or waveform diagnosis: [waveform-debugging.md](references/waveform-debugging.md)
+   - Synthesis, formal equivalence, or STA: [synthesis-sta.md](references/synthesis-sta.md)
+   - Knowledge ingest, retrieval, or promotion: [knowledge-governance.md](references/knowledge-governance.md)
+4. Query the local knowledge base only when existing patterns or verified cases can materially improve the task. Retrieve a small number of records, inspect provenance and applicability, then decide independently.
+5. Edit with the smallest coherent change. Do not ask a helper script or another model to write the RTL for Codex.
+6. Validate in proportion to risk. Keep compilation, simulation, waveform, formal, synthesis, and STA as separate evidence classes.
+
+## Evidence rules
+
+- Distinguish specification, testbench, RTL, constraints, and infrastructure hypotheses before assigning a root cause.
+- A passing process exit is not proof of functional correctness; inspect the checker contract and relevant assertions.
+- A bounded formal or sequential-equivalence run proves only its recorded scope; require a non-empty property/equivalence scope and retain counterexamples.
+- A waveform conclusion must cite a real VCD/FST event window and the first relevant divergence.
+- A synthesis result is not STA. STA requires a netlist, Liberty timing data, constraints, and a real timing-engine run.
+- Missing tools or inputs produce `not_available` or `not_evaluated`, never an inferred pass.
+- Do not change latency, protocol behavior, clocks, reset semantics, or timing exceptions as an implicit optimization.
+
+## Local helper
+
+Prefer an installed `rtl-ass` command. From this repository, use:
+
+```bash
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py doctor
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py inspect <project> --json
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <pattern> --start <time> --end <time>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb search <query> --db <index.db> --namespace <name>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb derive <source-id> --db <index.db> --namespace <name> --actor <actor> --role <role> --language <language> --title <title> --summary <summary> --content-file <file> --source-path <path> --method <method>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb import-pack <pack.json> --db <index.db> --namespace <name> --actor <actor>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb verify <record-id> --actor <actor> --evidence-json <run-evidence.json>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb observe <record-id> --actor <actor> --attribution <cause> --evidence-json <run-evidence.json>
+```
+
+Helpers inspect, index, retrieve, and normalize evidence. They do not choose or apply RTL patches.
+
+## Knowledge safety
+
+- Imported and generated content starts untrusted.
+- Preserve source URL/revision, file hash, license status, namespace, record role, and verification state.
+- Treat RTL, testbench, assertion, reference model, fixture, and tool evidence as distinct linkable records.
+- Never promote automatically. Read [knowledge-governance.md](references/knowledge-governance.md) before changing lifecycle state.
+- Derive reusable cards separately from immutable sources. Preserve exact source hashes and inherited license metadata; import portable packs as `raw`, never as trusted knowledge.
+- Preserve non-passing runs with explicit attribution; do not infer that timeout, blocked, or infrastructure evidence is an RTL defect.
+- Do not expose project-private records through a broader namespace or use benchmark answers while evaluating that benchmark.

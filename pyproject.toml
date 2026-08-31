@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rtl-ass"
+version = "1.0.0"
+description = "Open-source RTL engineering support and verified local knowledge for Codex"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{name = "RTL-ASS contributors"}]
+classifiers = [
+  "Development Status :: 5 - Production/Stable",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+
+[project.urls]
+Homepage = "https://github.com/liujianyu20021122/RTL-ASS"
+Repository = "https://github.com/liujianyu20021122/RTL-ASS"
+Issues = "https://github.com/liujianyu20021122/RTL-ASS/issues"
+
+[project.optional-dependencies]
+dev = [
+  "build==1.6.0",
+  "jsonschema==4.26.0",
+  "mypy==2.3.1",
+  "ruff==0.16.5",
+  "twine==7.0.0",
+]
+
+[project.scripts]
+rtl-ass = "rtl_ass.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+rtl_ass = ["py.typed"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "SIM", "RUF"]
+ignore = ["SIM117"]
+
+[tool.ruff.lint.per-file-ignores]
+".agents/skills/rtl-ass/scripts/rtl_ass.py" = ["E402"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+mypy_path = "src"

@@ -1,0 +1,16 @@
+schema_version = 1
+
+[knowledge]
+database = ".rtl-ass/index.db"
+default_namespace = "project:default"
+search_limit = 5
+
+[project]
+max_source_bytes = 5242880
+follow_symlinks = false
+
+[verification.gates.rtl-design]
+required_kinds = ["lint", "simulation"]
+
+[verification.gates.testbench]
+required_kinds = ["simulation"]

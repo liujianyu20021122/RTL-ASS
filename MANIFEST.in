@@ -1,0 +1,12 @@
+include AGENTS.md CHANGELOG.md CONTRIBUTING.md LICENSE PLAN.md README.md SECURITY.md
+recursive-include .agents/skills/rtl-ass *.md *.py *.yaml
+recursive-include config *.toml
+recursive-include corpus *.json *.md
+recursive-include docs *.md
+recursive-include evals *.json *.md *.py
+recursive-include library *.json *.md *.sv
+recursive-include schemas *.json
+recursive-include tests *.py *.sv *.vcd *.v *.sdc *.lib
+include tools/build_release_assets.py tools/release_audit.py
+exclude tools/mine_rtl_conversations.py
+global-exclude __pycache__ *.py[cod]

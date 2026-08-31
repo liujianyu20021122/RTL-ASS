@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/wave-query.schema.json",
+  "title": "RTL-ASS Waveform Query",
+  "type": "object",
+  "required": ["schema_version", "kind", "status", "waveform", "waveform_hash", "timescale", "window"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {"enum": ["vcd-query", "vcd-first-divergence", "fst-query", "fst-first-divergence"]},
+    "status": {"enum": ["complete", "truncated", "found", "not_found", "not_found_in_truncated_window"]},
+    "waveform": {"type": "string"},
+    "waveform_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "timescale": {"type": "string"},
+    "window": {
+      "type": "object",
+      "required": ["start", "end"],
+      "properties": {
+        "start": {"type": "integer", "minimum": 0},
+        "end": {"type": ["integer", "null"], "minimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "patterns": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+    "selected_signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "identifier", "width", "variable_type"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1},
+          "identifier": {"type": "string", "minLength": 1},
+          "width": {"type": "integer", "minimum": 1},
+          "variable_type": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "event_count": {"type": "integer", "minimum": 0},
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["time", "signal", "value"],
+        "properties": {
+          "time": {"type": "integer", "minimum": 0},
+          "signal": {"type": "string", "minLength": 1},
+          "value": {"type": "string", "minLength": 1}
+        },
+        "additionalProperties": false
+      }
+    },
+    "first_divergence": {
+      "oneOf": [
+        {"type": "null"},
+        {
+          "type": "object",
+          "required": ["time", "expected_signal", "expected_value", "actual_signal", "actual_value"],
+          "properties": {
+            "time": {"type": "integer", "minimum": 0},
+            "expected_signal": {"type": "string", "minLength": 1},
+            "expected_value": {"type": "string", "minLength": 1},
+            "actual_signal": {"type": "string", "minLength": 1},
+            "actual_value": {"type": "string", "minLength": 1}
+          },
+          "additionalProperties": false
+        }
+      ]
+    },
+    "conversion": {
+      "type": "object",
+      "required": ["tool", "command", "converted_vcd_hash", "timeout_seconds", "max_converted_bytes"],
+      "properties": {
+        "tool": {
+          "type": "object",
+          "required": ["name", "binary_hash"],
+          "properties": {
+            "name": {"const": "fst2vcd"},
+            "binary_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+          },
+          "additionalProperties": false
+        },
+        "command": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+        "converted_vcd_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+        "max_converted_bytes": {"type": "integer", "minimum": 1, "maximum": 2147483648}
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"kind": {"enum": ["vcd-query", "fst-query"]}}},
+      "then": {
+        "required": ["patterns", "selected_signals", "event_count", "events"],
+        "properties": {"status": {"enum": ["complete", "truncated"]}}
+      },
+      "else": {
+        "required": ["first_divergence"],
+        "properties": {"status": {"enum": ["found", "not_found", "not_found_in_truncated_window"]}}
+      }
+    },
+    {
+      "if": {"properties": {"kind": {"enum": ["fst-query", "fst-first-divergence"]}}},
+      "then": {"required": ["conversion"]},
+      "else": {"not": {"required": ["conversion"]}}
+    }
+  ],
+  "additionalProperties": false
+}

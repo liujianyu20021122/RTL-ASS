@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/audit-event.schema.json",
+  "title": "RTL-ASS Audit Event",
+  "type": "object",
+  "required": [
+    "id",
+    "occurred_at",
+    "actor",
+    "action",
+    "subject_type",
+    "subject_id",
+    "input_hash",
+    "output_hash",
+    "details",
+    "previous_event_hash",
+    "event_hash"
+  ],
+  "properties": {
+    "id": {"type": "integer", "minimum": 1},
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "actor": {"type": "string"},
+    "action": {"type": "string"},
+    "subject_type": {"type": "string"},
+    "subject_id": {"type": "string"},
+    "previous_state": {"type": ["string", "null"]},
+    "new_state": {"type": ["string", "null"]},
+    "input_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "output_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "details": {"type": "object"},
+    "previous_event_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "event_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "additionalProperties": false
+}

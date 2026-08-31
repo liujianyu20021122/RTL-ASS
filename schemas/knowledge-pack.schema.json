@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/knowledge-pack.schema.json",
+  "title": "RTL-ASS Portable Knowledge Pack",
+  "type": "object",
+  "required": ["schema_version", "name", "version", "description", "license_spdx", "records", "links", "pack_hash"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "name": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+){0,2}(?:[-+][A-Za-z0-9.-]+)?$"},
+    "description": {"type": "string", "minLength": 1, "maxLength": 4096},
+    "license_spdx": {"type": "string", "minLength": 1, "maxLength": 128},
+    "records": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": {"$ref": "#/$defs/record"}
+    },
+    "links": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/link"}
+    },
+    "pack_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+  },
+  "$defs": {
+    "record": {
+      "type": "object",
+      "required": [
+        "key", "role", "language", "title", "summary", "content_hash",
+        "source_uri", "source_revision", "source_path", "license_spdx",
+        "license_status", "metadata"
+      ],
+      "properties": {
+        "key": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+        "role": {
+          "enum": [
+            "rtl-design", "testbench", "assertion", "reference-model", "fixture",
+            "package", "interface", "design-pattern", "verification-pattern", "bug-fix"
+          ]
+        },
+        "language": {"type": "string", "minLength": 1, "maxLength": 64},
+        "title": {"type": "string", "minLength": 1, "maxLength": 512},
+        "summary": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+        "source_uri": {"type": "string", "maxLength": 4096},
+        "source_revision": {"type": "string", "maxLength": 4096},
+        "source_path": {"type": "string", "maxLength": 4096},
+        "license_spdx": {"type": "string", "minLength": 1, "maxLength": 128},
+        "license_status": {"enum": ["known", "unknown", "incompatible", "not-applicable"]},
+        "metadata": {"type": "object"},
+        "content": {"type": "string", "minLength": 1},
+        "content_path": {"type": "string", "minLength": 1}
+      },
+      "oneOf": [
+        {"required": ["content"], "not": {"required": ["content_path"]}},
+        {"required": ["content_path"], "not": {"required": ["content"]}}
+      ],
+      "additionalProperties": false
+    },
+    "link": {
+      "type": "object",
+      "required": ["source", "target", "relation", "metadata"],
+      "properties": {
+        "source": {"type": "string"},
+        "target": {"type": "string"},
+        "relation": {
+          "enum": [
+            "verifies-dut", "assertion-for", "reference-for", "fixture-for",
+            "derived-from", "negative-for", "evidence-for"
+          ]
+        },
+        "metadata": {"type": "object"}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

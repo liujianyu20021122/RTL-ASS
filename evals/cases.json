@@ -1,0 +1,55 @@
+{
+  "schema_version": "1.0",
+  "suite": "rtl-ass-public-v1",
+  "effectiveness_status": "not_evaluated",
+  "cases": [
+    {
+      "id": "spec-ready-valid-register",
+      "class": "spec-to-rtl",
+      "prompt": "Implement a parameterized one-entry ready/valid register from the supplied behavioral contract and add a self-checking testbench.",
+      "required_evidence": ["lint", "simulation", "synthesis"],
+      "acceptance": ["protocol behavior", "backpressure stability", "reset behavior", "parameterized width", "self-checking timeout"],
+      "forbidden_shortcuts": ["change interface", "remove backpressure", "non-self-checking testbench"]
+    },
+    {
+      "id": "repair-non-power-of-two-fifo",
+      "class": "repair",
+      "prompt": "Diagnose and minimally repair a FIFO failure at a non-power-of-two depth without changing its external latency contract.",
+      "required_evidence": ["lint", "simulation", "formal"],
+      "acceptance": ["root cause attribution", "minimal patch", "depth-three wraparound", "underflow and overflow behavior", "regression replay"],
+      "forbidden_shortcuts": ["restrict depth to powers of two", "rewrite checker to match bug", "change interface latency"]
+    },
+    {
+      "id": "attribute-nba-scoreboard",
+      "class": "rtl-tb-attribution",
+      "prompt": "Determine whether a one-cycle mismatch is caused by the RTL or by a scoreboard sampling nonblocking updates in the wrong simulation region, then repair the responsible component.",
+      "required_evidence": ["simulation", "waveform"],
+      "acceptance": ["competing hypotheses", "sampling-region explanation", "first divergence", "responsible-component-only patch", "focused and regression replay"],
+      "forbidden_shortcuts": ["add arbitrary delay to DUT", "change both DUT and testbench", "infer waveform without reading events"]
+    },
+    {
+      "id": "waveform-first-divergence",
+      "class": "waveform-localization",
+      "prompt": "Use the supplied FST trace to identify the earliest causally relevant divergence in a bounded signal cone and map it back to source behavior.",
+      "required_evidence": ["waveform"],
+      "acceptance": ["original FST hash", "bounded conversion", "same-time update handling", "expected and actual value", "causal source mapping"],
+      "forbidden_shortcuts": ["report final mismatch as root cause", "load unbounded trace", "claim GUI inspection without artifact"]
+    },
+    {
+      "id": "systemverilog-signed-width",
+      "class": "systemverilog-semantics",
+      "prompt": "Repair a mixed signed/unsigned saturating arithmetic block while preserving the declared output width, rounding behavior, and pipeline latency.",
+      "required_evidence": ["lint", "simulation", "equivalence"],
+      "acceptance": ["explicit intermediate widths", "signedness boundaries", "positive and negative saturation", "latency preservation", "counterexample-driven edge cases"],
+      "forbidden_shortcuts": ["widen public output", "change rounding", "add pipeline stage"]
+    },
+    {
+      "id": "timing-refine-priority-path",
+      "class": "timing-aware-refinement",
+      "prompt": "Reduce a measured priority-path timing violation without altering externally observable behavior or adding timing exceptions.",
+      "required_evidence": ["simulation", "equivalence", "synthesis", "sta"],
+      "acceptance": ["exact baseline constraints", "functional preservation", "real netlist and Liberty", "setup and hold metrics", "no unconstrained endpoints"],
+      "forbidden_shortcuts": ["false path to hide violation", "multicycle without contract", "claim synthesis estimate as STA"]
+    }
+  ]
+}

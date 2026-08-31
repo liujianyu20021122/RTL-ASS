@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/knowledge-record.schema.json",
+  "title": "RTL-ASS Knowledge Record",
+  "type": "object",
+  "required": [
+    "id",
+    "namespace",
+    "role",
+    "status",
+    "language",
+    "title",
+    "summary",
+    "content_hash",
+    "source_uri",
+    "source_revision",
+    "source_path",
+    "license_spdx",
+    "license_status",
+    "metadata",
+    "verification",
+    "created_at",
+    "updated_at"
+  ],
+  "properties": {
+    "id": {"type": "string", "pattern": "^[0-9a-f]{32}$"},
+    "namespace": {"type": "string", "minLength": 1, "maxLength": 128},
+    "role": {
+      "enum": [
+        "rtl-design",
+        "testbench",
+        "assertion",
+        "reference-model",
+        "fixture",
+        "package",
+        "interface",
+        "design-pattern",
+        "verification-pattern",
+        "bug-fix",
+        "tool-evidence"
+      ]
+    },
+    "status": {"enum": ["raw", "analyzed", "candidate", "verified", "promoted", "deprecated"]},
+    "language": {"type": "string", "minLength": 1, "maxLength": 64},
+    "title": {"type": "string", "minLength": 1, "maxLength": 512},
+    "summary": {"type": "string", "maxLength": 4096},
+    "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "source_uri": {"type": "string"},
+    "source_revision": {"type": "string"},
+    "source_path": {"type": "string"},
+    "license_spdx": {"type": "string"},
+    "license_status": {"enum": ["known", "unknown", "incompatible", "not-applicable"]},
+    "metadata": {"type": "object"},
+    "verification": {"type": "object"},
+    "created_at": {"type": "string", "format": "date-time"},
+    "updated_at": {"type": "string", "format": "date-time"},
+    "content": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://rtl-ass.dev/schemas/run-evidence.schema.json",
+  "title": "RTL-ASS Run Evidence",
+  "type": "object",
+  "required": ["schema_version", "kind", "status", "tool", "input_hash", "subject_hashes", "top", "commands", "artifacts", "artifact_hashes", "summary", "claim_scope"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "kind": {
+      "enum": ["lint", "compile", "simulation", "waveform", "formal", "equivalence", "synthesis", "sta", "coverage", "mutation"]
+    },
+    "status": {"enum": ["pass", "fail", "timeout", "blocked", "not_available", "not_evaluated"]},
+    "tool": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": {"type": "string"},
+        "version": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "input_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "subject_hashes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["index", "path", "content_hash"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "path": {"type": "string"},
+          "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {"type": "array", "items": {"type": "string"}}
+    },
+    "artifacts": {"type": "array", "items": {"type": "string"}},
+    "artifact_hashes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["index", "path", "content_hash"],
+        "properties": {
+          "index": {"type": "integer", "minimum": 0},
+          "path": {"type": "string"},
+          "content_hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+        },
+        "additionalProperties": false
+      }
+    },
+    "top": {"type": "string", "minLength": 1},
+    "claim_scope": {"type": "string", "minLength": 1},
+    "evidence_file": {"type": "string", "minLength": 1},
+    "started_at": {"type": "string", "format": "date-time"},
+    "finished_at": {"type": "string", "format": "date-time"},
+    "summary": {"type": "object"}
+  },
+  "allOf": [
+    {
+      "if": {"properties": {"status": {"enum": ["pass", "fail", "timeout", "blocked"]}}},
+      "then": {"required": ["evidence_file", "started_at", "finished_at"]},
+      "else": {
+        "not": {"anyOf": [{"required": ["evidence_file"]}, {"required": ["started_at"]}, {"required": ["finished_at"]}]}
+      }
+    }
+  ],
+  "additionalProperties": false
+}
