@@ -53,8 +53,12 @@ def run_yosys_synthesis(
             "check",
             f"synth -top {bundle.top}",
             "check",
-            f"tee -o {yosys_quote(stats_path)} stat -json",
-            f"write_json {yosys_quote(netlist_path)}",
+            # These are fixed filenames inside cwd.  Yosys 0.33's tee pass
+            # cannot reliably create a quoted absolute output path, while
+            # newer releases accept it.  Relative names are portable across
+            # both versions and cannot be influenced by user input.
+            "tee -o stats.json stat -json",
+            "write_json netlist.json",
             "",
         ]
     )
@@ -84,6 +88,10 @@ def run_yosys_synthesis(
         summary = {"timeout_seconds": timeout_seconds}
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
+
+    if status == "fail":
+        combined = _combined_tool_output(stdout, stderr, log_path)
+        summary["tool_error"] = _last_nonempty_line(combined)
 
     if status == "pass":
         if not stats_path.is_file() or not netlist_path.is_file():

@@ -120,6 +120,10 @@ class EvidenceTests(unittest.TestCase):
             artifact_names = {Path(path).name for path in evidence["artifacts"]}
             self.assertIn("netlist.json", artifact_names)
             self.assertIn("stats.json", artifact_names)
+            script_path = next(Path(path) for path in evidence["artifacts"] if Path(path).name == "synthesis.ys")
+            script = script_path.read_text(encoding="utf-8")
+            self.assertIn("tee -o stats.json stat -json", script)
+            self.assertIn("write_json netlist.json", script)
 
     @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
     def test_yosys_formal_distinguishes_proof_and_counterexample(self) -> None:
