@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/liujianyu20021122/RTL-ASS/schemas/corpus-policy.schema.json",
+  "title": "RTL-ASS reviewed corpus policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "lock_created_at", "upstream_manifest", "source_root", "limits", "sources"],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "lock_created_at": {"type": "string", "format": "date-time"},
+    "upstream_manifest": {"$ref": "#/$defs/path"},
+    "source_root": {"$ref": "#/$defs/path"},
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_files", "max_total_bytes", "max_source_bytes"],
+      "properties": {
+        "max_files": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "max_total_bytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+        "max_source_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432}
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"oneOf": [{"$ref": "#/$defs/included"}, {"$ref": "#/$defs/excluded"}]}
+    }
+  },
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "base": {
+      "type": "object",
+      "required": ["name", "decision", "rationale"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "decision": {"enum": ["include", "exclude"]},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
+      }
+    },
+    "excluded": {
+      "allOf": [
+        {"$ref": "#/$defs/base"},
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "decision", "rationale"],
+          "properties": {
+            "name": {"$ref": "#/$defs/identifier"},
+            "decision": {"const": "exclude"},
+            "rationale": {"type": "string", "minLength": 1, "maxLength": 4096}
+          }
+        }
+      ]
+    },
+    "included": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "decision", "rationale", "namespace", "license_review", "selections"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "decision": {"const": "include"},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "namespace": {"$ref": "#/$defs/identifier"},
+        "license_review": {"$ref": "#/$defs/license_review"},
+        "selections": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 128,
+          "items": {"$ref": "#/$defs/selection"}
+        }
+      }
+    },
+    "license_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spdx", "license_path", "license_hash", "reviewed_by", "reviewed_at", "scope"],
+      "properties": {
+        "spdx": {"type": "string", "minLength": 1, "maxLength": 128},
+        "license_path": {"$ref": "#/$defs/path"},
+        "license_hash": {"$ref": "#/$defs/sha256"},
+        "reviewed_by": {"type": "string", "minLength": 1, "maxLength": 128},
+        "reviewed_at": {"type": "string", "format": "date"},
+        "scope": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "selection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "path", "role"],
+      "properties": {
+        "kind": {"enum": ["file", "prefix"]},
+        "path": {"$ref": "#/$defs/path"},
+        "role": {
+          "enum": [
+            "auto", "design-auto", "rtl-design", "testbench", "assertion", "reference-model",
+            "fixture", "package", "interface", "design-pattern", "verification-pattern", "bug-fix"
+          ]
+        }
+      }
+    }
+  }
+}

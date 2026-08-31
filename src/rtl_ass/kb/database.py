@@ -157,6 +157,23 @@ class KnowledgeDatabase(DatabaseRecordStore):
             self._require_schema(connection)
             return self._insert_record(connection, record, actor=actor)
 
+    def add_records(
+        self,
+        records: Iterable[KnowledgeRecordInput],
+        *,
+        actor: str = "rtl-ass",
+    ) -> list[dict[str, Any]]:
+        """Insert a bounded caller-owned batch in one database transaction."""
+        validate_identifier(actor, "actor")
+        items = tuple(records)
+        with self._connect() as connection:
+            self._require_schema(connection)
+            stored = [self._insert_record(connection, record, actor=actor) for record in items]
+            audit = verify_audit_chain(connection)
+            if not audit["valid"]:
+                raise RtlAssError("batch_audit_invalid", "audit chain failed before batch commit", audit)
+            return stored
+
     def derive_record(
         self,
         source_record_id: str,
@@ -499,6 +516,46 @@ class KnowledgeDatabase(DatabaseRecordStore):
                 item["details"] = database_json(item.pop("details_json"), "audit_events.details_json")
                 result.append(item)
             return result
+
+    def statistics(self) -> dict[str, Any]:
+        with self._connect() as connection:
+            self._require_schema(connection)
+
+            def grouped(field: str) -> dict[str, int]:
+                rows = connection.execute(
+                    f"SELECT {field}, count(*) AS count FROM records GROUP BY {field} ORDER BY {field}"
+                ).fetchall()
+                return {str(row[field]): int(row["count"]) for row in rows}
+
+            counts = connection.execute(
+                """
+                SELECT
+                    (SELECT count(*) FROM records) AS records,
+                    (SELECT count(*) FROM blobs) AS unique_blobs,
+                    (SELECT coalesce(sum(byte_count), 0) FROM blobs) AS unique_content_bytes,
+                    (SELECT count(*) FROM record_links) AS links,
+                    (SELECT count(*) FROM audit_events) AS audit_events
+                """
+            ).fetchone()
+            if counts is None:
+                raise AssertionError("aggregate statistics query must return one row")
+            audit = verify_audit_chain(connection)
+            if not audit["valid"]:
+                raise RtlAssError("database_audit_invalid", "knowledge statistics require a valid audit chain", audit)
+            return {
+                "schema_version": "1.0",
+                "records": int(counts["records"]),
+                "unique_blobs": int(counts["unique_blobs"]),
+                "unique_content_bytes": int(counts["unique_content_bytes"]),
+                "links": int(counts["links"]),
+                "audit_events": int(counts["audit_events"]),
+                "by_namespace": grouped("namespace"),
+                "by_role": grouped("role"),
+                "by_language": grouped("language"),
+                "by_status": grouped("status"),
+                "by_license": grouped("license_spdx"),
+                "audit_chain": audit,
+            }
 
     def verify_audit_chain(self) -> dict[str, Any]:
         with self._connect() as connection:

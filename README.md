@@ -52,6 +52,13 @@ rtl-ass kb pack-validate library/starter/pack.json
 rtl-ass kb import-pack library/starter/pack.json --db .rtl-ass/knowledge.db \
   --namespace builtin:starter --actor local-user
 rtl-ass kb search ready --db .rtl-ass/knowledge.db --namespace builtin:starter
+
+# Reproduce the reviewed local upstream index (source checkouts stay ignored)
+rtl-ass corpus lock corpus/ingestion-policy.json \
+  --source-root research/upstream --output corpus/curated-lock.json
+rtl-ass kb import-corpus corpus/curated-lock.json --source-root research/upstream \
+  --db .rtl-ass/knowledge.db --actor corpus-review
+rtl-ass kb stats --db .rtl-ass/knowledge.db
 ```
 
 All commands return stable machine-readable JSON on success and structured JSON errors on failure. `doctor` reports discovery only; it never implies that verification ran.
@@ -60,7 +67,7 @@ All commands return stable machine-readable JSON on success and structured JSON 
 
 Imported material starts `raw`; derived material starts `candidate`; neither is verified or promoted automatically. Verification requires exact passing evidence and is committed atomically with evidence records and links. Failed, blocked, timeout, and infrastructure outcomes are retained without being mislabeled as RTL defects. Pack import validates paths, byte bounds, content hashes, roles, relationships, and the pack identity before database writes.
 
-The audit chain is tamper-evident rather than tamper-proof: a database owner can replace the whole database. See [audit model](docs/audit-model.md), [architecture](docs/architecture.md), and [knowledge packs](docs/knowledge-packs.md).
+The audit chain is tamper-evident rather than tamper-proof: a database owner can replace the whole database. The reviewed corpus lock describes 1,429 raw Verilog/SystemVerilog files across seven isolated namespaces without redistributing their code. See [audit model](docs/audit-model.md), [architecture](docs/architecture.md), [corpus governance](docs/corpus.md), and [knowledge packs](docs/knowledge-packs.md).
 
 ## Development and release verification
 

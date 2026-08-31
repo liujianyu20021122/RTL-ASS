@@ -12,6 +12,7 @@ from typing import Any, Sequence
 from rtl_ass import __version__
 from rtl_ass.config import Settings, load_settings
 from rtl_ass.corpus import audit_corpus, write_manifest_atomic
+from rtl_ass.corpus_lock import build_corpus_lock, import_corpus_lock, write_corpus_lock
 from rtl_ass.errors import RtlAssError
 from rtl_ass.evidence import (
     run_iverilog_simulation,
@@ -21,7 +22,7 @@ from rtl_ass.evidence import (
     run_yosys_formal,
     run_yosys_synthesis,
 )
-from rtl_ass.integrity import parse_json
+from rtl_ass.integrity import parse_json, read_utf8_exact
 from rtl_ass.kb.database import KnowledgeDatabase
 from rtl_ass.kb.ingest import ingest_path
 from rtl_ass.kb.models import LicenseStatus, LinkRelation, ObservationAttribution, RecordRole, RecordStatus
@@ -44,7 +45,7 @@ def _load_json_object(path: str) -> dict[str, Any]:
     if not source.is_file():
         raise RtlAssError("evidence_not_found", "evidence JSON file does not exist", {"path": path})
     try:
-        value = parse_json(source.read_text(encoding="utf-8"))
+        value = parse_json(read_utf8_exact(source))
     except (ValueError, UnicodeDecodeError) as exc:
         raise RtlAssError(
             "invalid_evidence_json", "evidence file must contain one UTF-8 JSON object", {"reason": str(exc)}
@@ -67,7 +68,7 @@ def _load_utf8_text(path: str, *, max_bytes: int = 2 * 1024 * 1024) -> str:
             "content_too_large", "knowledge content exceeds the supported byte limit", {"max_bytes": max_bytes}
         )
     try:
-        return source.read_text(encoding="utf-8")
+        return read_utf8_exact(source)
     except UnicodeDecodeError as exc:
         raise RtlAssError("invalid_content_encoding", "knowledge content must be UTF-8", {"path": path}) from exc
 
@@ -95,6 +96,11 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     corpus_audit.add_argument("path")
     corpus_audit.add_argument("--output")
     corpus_audit.set_defaults(handler=_handle_corpus_audit)
+    corpus_lock = corpus_commands.add_parser("lock", help="build a reviewed file-level corpus lock")
+    corpus_lock.add_argument("policy")
+    corpus_lock.add_argument("--source-root")
+    corpus_lock.add_argument("--output", required=True)
+    corpus_lock.set_defaults(handler=_handle_corpus_lock)
 
     verify = commands.add_parser("verify", help="run bounded open-source RTL evidence tools")
     verify_commands = verify.add_subparsers(dest="verify_command", required=True)
@@ -181,6 +187,17 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     )
     ingest.add_argument("--max-source-bytes", type=int, default=settings.max_source_bytes)
     ingest.set_defaults(handler=_handle_kb_ingest)
+
+    import_corpus = kb_commands.add_parser("import-corpus", help="atomically import a reviewed corpus lock")
+    import_corpus.add_argument("lock")
+    import_corpus.add_argument("--source-root", required=True)
+    _add_database_argument(import_corpus, settings)
+    import_corpus.add_argument("--actor", required=True)
+    import_corpus.set_defaults(handler=_handle_kb_import_corpus)
+
+    stats = kb_commands.add_parser("stats", help="report audited knowledge inventory counts")
+    _add_database_argument(stats, settings)
+    stats.set_defaults(handler=_handle_kb_stats)
 
     search = kb_commands.add_parser("search", help="search explicit knowledge namespaces")
     search.add_argument("query")
@@ -330,6 +347,19 @@ def _handle_corpus_audit(args: argparse.Namespace) -> dict[str, Any]:
     return manifest
 
 
+def _handle_corpus_lock(args: argparse.Namespace) -> dict[str, Any]:
+    lock = build_corpus_lock(args.policy, source_root=args.source_root)
+    destination = write_corpus_lock(lock, args.output)
+    return {
+        "schema_version": "1.0",
+        "lock": destination.as_posix(),
+        "lock_hash": lock["lock_hash"],
+        "repository_count": lock["repository_count"],
+        "file_count": lock["file_count"],
+        "byte_count": lock["byte_count"],
+    }
+
+
 def _handle_verify_lint(args: argparse.Namespace) -> dict[str, Any]:
     return run_verilator_lint(
         args.source,
@@ -438,6 +468,19 @@ def _handle_kb_ingest(args: argparse.Namespace) -> dict[str, Any]:
         initial_status=RecordStatus(args.initial_status),
         max_source_bytes=args.max_source_bytes,
     )
+
+
+def _handle_kb_import_corpus(args: argparse.Namespace) -> dict[str, Any]:
+    return import_corpus_lock(
+        _database(args.db),
+        args.lock,
+        source_root=args.source_root,
+        actor=args.actor,
+    )
+
+
+def _handle_kb_stats(args: argparse.Namespace) -> dict[str, Any]:
+    return _database(args.db).statistics()
 
 
 def _handle_kb_search(args: argparse.Namespace) -> dict[str, Any]:

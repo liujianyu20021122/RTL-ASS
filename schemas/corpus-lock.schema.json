@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/liujianyu20021122/RTL-ASS/schemas/corpus-lock.schema.json",
+  "title": "RTL-ASS file-level corpus lock",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "generated_at", "source_root", "upstream_manifest_hash", "policy_hash", "limits",
+    "repository_count", "file_count", "byte_count", "repositories", "lock_hash"
+  ],
+  "properties": {
+    "schema_version": {"const": "1.0"},
+    "generated_at": {"type": "string", "format": "date-time"},
+    "source_root": {"$ref": "#/$defs/path"},
+    "upstream_manifest_hash": {"$ref": "#/$defs/sha256"},
+    "policy_hash": {"$ref": "#/$defs/sha256"},
+    "limits": {"$ref": "#/$defs/limits"},
+    "repository_count": {"type": "integer", "minimum": 1, "maximum": 64},
+    "file_count": {"type": "integer", "minimum": 1, "maximum": 100000},
+    "byte_count": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+    "repositories": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {"$ref": "#/$defs/repository"}
+    },
+    "lock_hash": {"$ref": "#/$defs/sha256"}
+  },
+  "$defs": {
+    "path": {"type": "string", "minLength": 1, "maxLength": 1024, "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))(?!.*\\\\).+$"},
+    "identifier": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$"},
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "git_revision": {"type": "string", "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"},
+    "role": {
+      "enum": [
+        "rtl-design", "testbench", "assertion", "reference-model", "fixture", "package", "interface",
+        "design-pattern", "verification-pattern", "bug-fix"
+      ]
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["max_files", "max_total_bytes", "max_source_bytes"],
+      "properties": {
+        "max_files": {"type": "integer", "minimum": 1, "maximum": 100000},
+        "max_total_bytes": {"type": "integer", "minimum": 1, "maximum": 1073741824},
+        "max_source_bytes": {"type": "integer", "minimum": 1, "maximum": 33554432}
+      }
+    },
+    "license_review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spdx", "license_path", "license_hash", "reviewed_by", "reviewed_at", "scope"],
+      "properties": {
+        "spdx": {"type": "string", "minLength": 1, "maxLength": 128},
+        "license_path": {"$ref": "#/$defs/path"},
+        "license_hash": {"$ref": "#/$defs/sha256"},
+        "reviewed_by": {"type": "string", "minLength": 1, "maxLength": 128},
+        "reviewed_at": {"type": "string", "format": "date"},
+        "scope": {"type": "string", "minLength": 1, "maxLength": 1024}
+      }
+    },
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "namespace", "source_uri", "revision", "source_identity", "rationale", "license_review", "files"],
+      "properties": {
+        "name": {"$ref": "#/$defs/identifier"},
+        "namespace": {"$ref": "#/$defs/identifier"},
+        "source_uri": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "revision": {"$ref": "#/$defs/git_revision"},
+        "source_identity": {"$ref": "#/$defs/sha256"},
+        "rationale": {"type": "string", "minLength": 1, "maxLength": 4096},
+        "license_review": {"$ref": "#/$defs/license_review"},
+        "files": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/file"}}
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "content_hash", "byte_count", "role", "language", "title", "summary", "inspection"],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "content_hash": {"$ref": "#/$defs/sha256"},
+        "byte_count": {"type": "integer", "minimum": 1, "maximum": 33554432},
+        "role": {"$ref": "#/$defs/role"},
+        "language": {"enum": ["verilog", "systemverilog"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 512},
+        "summary": {"type": "string", "maxLength": 4096},
+        "inspection": {"$ref": "#/$defs/inspection"}
+      }
+    },
+    "inspection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path", "language", "content_hash", "byte_count", "role", "role_confidence", "role_basis", "modules",
+        "interfaces", "packages", "includes", "clock_hints", "reset_hints"
+      ],
+      "properties": {
+        "path": {"$ref": "#/$defs/path"},
+        "language": {"enum": ["verilog", "systemverilog"]},
+        "content_hash": {"$ref": "#/$defs/sha256"},
+        "byte_count": {"type": "integer", "minimum": 1, "maximum": 33554432},
+        "role": {"$ref": "#/$defs/role"},
+        "role_confidence": {"enum": ["medium", "high"]},
+        "role_basis": {"type": "array", "items": {"type": "string"}},
+        "modules": {"type": "array", "items": {"type": "string"}},
+        "interfaces": {"type": "array", "items": {"type": "string"}},
+        "packages": {"type": "array", "items": {"type": "string"}},
+        "includes": {"type": "array", "items": {"type": "string"}},
+        "clock_hints": {"type": "array", "items": {"type": "string"}},
+        "reset_hints": {"type": "array", "items": {"type": "string"}}
+      }
+    }
+  }
+}

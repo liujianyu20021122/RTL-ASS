@@ -2,6 +2,12 @@
 
 All notable changes use semantic versioning.
 
+## Unreleased
+
+- Added an explicit 21-source corpus admission policy and a reproducible file-level lock for 1,429 reviewed Verilog/SystemVerilog files across seven quarantined namespaces.
+- Added atomic, idempotent corpus import; audited inventory statistics; raw-byte-stable hashing; resource, provenance, license, namespace, and path validation; and public JSON schemas.
+- Added real Verilator/Yosys sampling evidence without promoting raw upstream records; dependency-context failures remain explicitly attributed observations.
+
 ## 1.0.0 — 2026-08-31
 
 Initial stable release.

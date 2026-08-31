@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from rtl_ass.integrity import read_utf8_exact
 from rtl_ass.kb.database import KnowledgeDatabase
 from rtl_ass.kb.models import KnowledgeRecordInput, LicenseStatus, RecordRole, RecordStatus
 from rtl_ass.project import analyze_source, discover_sources
@@ -26,7 +27,7 @@ def ingest_path(
 ) -> dict[str, Any]:
     root = Path(path).resolve()
     base = root.parent if root.is_file() else root
-    records: list[dict[str, Any]] = []
+    pending: list[tuple[KnowledgeRecordInput, str, RecordRole]] = []
     skipped: list[dict[str, Any]] = []
     for source_path in discover_sources(root):
         relative = source_path.relative_to(base).as_posix()
@@ -35,7 +36,7 @@ def ingest_path(
             skipped.append({"path": relative, "reason": "source_too_large", "byte_count": size})
             continue
         try:
-            text = source_path.read_text(encoding="utf-8")
+            text = read_utf8_exact(source_path)
         except UnicodeDecodeError as exc:
             skipped.append({"path": relative, "reason": "not_utf8", "offset": exc.start})
             continue
@@ -59,14 +60,18 @@ def ingest_path(
             status=initial_status,
             metadata={"inspection": analysis},
         )
-        result = database.add_record(record, actor=actor)
+        pending.append((record, relative, role))
+
+    stored = database.add_records((record for record, _, _ in pending), actor=actor)
+    records: list[dict[str, Any]] = []
+    for result, (record, relative, role) in zip(stored, pending, strict=True):
         records.append(
             {
                 "id": result["record"]["id"],
                 "created": result["created"],
                 "path": relative,
                 "role": role.value,
-                "content_hash": result["record"]["content_hash"],
+                "content_hash": record.content_hash,
             }
         )
     return {

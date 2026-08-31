@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator
 from referencing import Registry, Resource
 
 from rtl_ass.evidence import run_iverilog_simulation, run_yosys_equivalence, run_yosys_formal
+from rtl_ass.kb.database import KnowledgeDatabase
 from rtl_ass.kb.gates import build_observation_set, build_verification_gate
 from rtl_ass.kb.packs import knowledge_pack_hash, validate_knowledge_pack
 from rtl_ass.waveform import query_waveform
@@ -26,6 +27,24 @@ def validate_instance(schema: dict[str, object], instance: object) -> None:
 
 
 class SchemaContractTests(unittest.TestCase):
+    def test_knowledge_statistics_match_declared_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = KnowledgeDatabase(Path(directory) / "index.db")
+            database.initialize(actor="test-suite")
+            statistics = database.statistics()
+        validate_instance(SCHEMAS["knowledge-stats.schema.json"], statistics)
+        self.assertEqual(statistics["records"], 0)
+        self.assertTrue(statistics["audit_chain"]["valid"])
+
+    def test_curated_corpus_policy_and_lock_match_declared_contracts(self) -> None:
+        policy = json.loads((ROOT / "corpus" / "ingestion-policy.json").read_text(encoding="utf-8"))
+        lock = json.loads((ROOT / "corpus" / "curated-lock.json").read_text(encoding="utf-8"))
+        validate_instance(SCHEMAS["corpus-policy.schema.json"], policy)
+        validate_instance(SCHEMAS["corpus-lock.schema.json"], lock)
+        self.assertEqual(len(policy["sources"]), 21)
+        self.assertEqual(lock["repository_count"], 7)
+        self.assertEqual(lock["file_count"], sum(len(repository["files"]) for repository in lock["repositories"]))
+
     def test_knowledge_pack_matches_declared_schema_contract(self) -> None:
         schema = json.loads((ROOT / "schemas" / "knowledge-pack.schema.json").read_text(encoding="utf-8"))
         content = "A bounded ready/valid verification pattern.\n"
