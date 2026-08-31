@@ -107,9 +107,21 @@ Status: completed after 1.0; unreleased.
 - Added strict policy/lock schemas, canonical path and source identity checks, tracked license verification, bounded selections, raw-byte-stable hashes, atomic/idempotent import, collision rollback, and audited inventory statistics.
 - Imported the lock into the ignored local database. Standalone Verilator lint and Yosys synthesis passed for PicoRV32 and `axis_register`; the PULP AXI standalone dependency failure is retained as infrastructure evidence rather than an RTL defect.
 
+### M9 — Observable Codex workflow audit
+
+Status: completed; post-1.0 and unreleased.
+
+- Add isolated skill-off/skill-on `codex exec --json` runs with an identical prompt, model, budget, public fixture, and external hidden grader.
+- Sanitize the observable trace into exact skill/reference reads, commands, file changes, final agent messages, usage, normalized evidence, and grader results; never publish reasoning content or authentication state.
+- Reject infrastructure-contaminated pairs and verify that passing normalized evidence binds the final candidate and unchanged supplied testbench.
+- Run at least five independent paired replications on the transparent FIFO repair fixture. Treat this as a workflow-mechanism audit, not proof of general model uplift.
+- Add regression tests, CI/static coverage, packaging coverage, documentation, and a compact public result after the campaign is reviewed.
+
+The first five-pair FIFO campaign found a real but costly mechanism: both conditions produced externally correct candidates in 5/5 runs, skill-on produced complete bound lint/simulation/synthesis evidence in 5/5, but supplemental formal retry loops reduced skill-on task completion to 1/5 under 600 seconds versus 5/5 off. Timeout output decoding and task-success accounting were corrected, and the skill gained selective-reference and supplemental-evidence stopping rules. A fresh forward pair completed 1/1 in both conditions; skill-on retained complete evidence but used 534.6 seconds and 714,080 input tokens versus 303.0 seconds and 144,992 tokens off. This establishes observable activation and evidence behavior, not general correctness uplift; `effectiveness_status` remains `not_evaluated`.
+
 ## Post-1.0 roadmap
 
-- Controlled multi-seed Codex skill-off/skill-on campaign using the published protocol.
+- Controlled paired Codex skill-off/skill-on campaigns across multiple task classes; use fixed seeds only when the evaluated interface exposes them.
 - Additional first-party packs for FIFO, arbiter, CDC/reset, memory, arithmetic, FSM, and reusable assertion/TB patterns; each requires compatible licensing and executable evidence.
 - Optional vector retrieval only after a measured benefit over FTS plus structural filters.
 - Stronger formal/equivalence and physical-context adapters only when installed engines, assumptions, limits, counterexamples, and schemas are explicit.
@@ -125,5 +137,6 @@ Status: completed after 1.0; unreleased.
 - 2026-08-31: Explicit-candidate GK/KY usability audit selected `library/starter` correctly but had an unknown task contract and could not consume RTL-ASS JSON evidence as its legacy flat report names; its conservative single-candidate number is therefore withheld as neither a full-suite nor a model-effectiveness score.
 - 2026-08-31: The reviewed corpus lock reproduced byte-for-byte at hash `73855d55370257469793d7504c1fc79c74eb20a481ba42bfedd6ea54c0963046`; first import created 1,429 records, the identical retry created zero and changed no database bytes, and the post-sampling 1,457-event audit chain validated.
 - 2026-08-31: Post-corpus normal and optimized suites each passed 92 tests; ten JSON schemas, Ruff, strict mypy over 33 modules, Skill Creator validation, representative release audit, SQLite integrity/foreign keys, exact lock-to-database set equality, and sdist/wheel isolation scans passed.
+- 2026-08-31: Observable workflow audit added ten trace/grader regressions; normal and optimized suites each passed 102 tests. Ruff, strict mypy over 34 modules, ten schemas, Skill Creator validation, the public evaluation manifest, representative release audit, wheel/sdist metadata, and a 124-file sdist isolation/secret-shape scan passed. The reviewed five-pair report hash is `595c41f8f2442879f35acc4375d1e309f71fbc117fee8731c1b55cb728831428`; the corrected forward-pair report hash is `574db311ec0957f0d23d065cb817ba7f241bdb126b20dca0668887e0abc67dbe`.
 
 The record is updated only from executed evidence. Final artifact hashes live in `SHA256SUMS`; commit, tag, and asset publication are evidenced by the immutable GitHub release rather than duplicated inside the files they hash.
