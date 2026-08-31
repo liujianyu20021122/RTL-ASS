@@ -204,6 +204,7 @@ class EquivalenceInputBundle:
     reference: SourceBundle
     implementation: SourceBundle
     depth: int
+    input_domain: str
 
     @classmethod
     def create(
@@ -214,8 +215,15 @@ class EquivalenceInputBundle:
         reference_top: str,
         implementation_top: str,
         depth: int,
+        input_domain: str = "defined",
     ) -> "EquivalenceInputBundle":
         validate_depth(depth)
+        if input_domain not in {"defined", "undefined"}:
+            raise RtlAssError(
+                "invalid_equivalence_input_domain",
+                "equivalence input domain must be defined or undefined",
+                {"input_domain": input_domain},
+            )
         reference = SourceBundle.create(reference_sources, reference_top)
         implementation = SourceBundle.create(implementation_sources, implementation_top)
         if reference.input_hash == implementation.input_hash:
@@ -223,7 +231,7 @@ class EquivalenceInputBundle:
                 "identical_equivalence_inputs",
                 "equivalence requires distinct reference and implementation identities",
             )
-        return cls(reference, implementation, depth)
+        return cls(reference, implementation, depth, input_domain)
 
     @property
     def top(self) -> str:
@@ -260,6 +268,7 @@ class EquivalenceInputBundle:
                 "reference_top": self.reference.top,
                 "implementation_top": self.implementation.top,
                 "depth": self.depth,
+                "input_domain": self.input_domain,
                 "subjects": identities,
             }
         )

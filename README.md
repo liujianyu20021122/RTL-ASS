@@ -77,12 +77,12 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 PYTHONOPTIMIZE=1 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ruff format --check src tests .agents/skills/rtl-ass/scripts
 ruff check src tests .agents/skills/rtl-ass/scripts
-mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py
+mypy src tools/release_audit.py tools/build_release_assets.py evals/validate_cases.py evals/run_codex_ab.py evals/workflow_cases.py
 python3 -m build
 twine check dist/*
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md). Release procedures are in [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). Release procedures are in [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 

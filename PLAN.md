@@ -109,7 +109,7 @@ Status: completed after 1.0; unreleased.
 
 ### M9 — Observable Codex workflow audit
 
-Status: completed; post-1.0 and unreleased.
+Status: completed and superseded by the six-class audit; post-1.0 and unreleased.
 
 - Add isolated skill-off/skill-on `codex exec --json` runs with an identical prompt, model, budget, public fixture, and external hidden grader.
 - Sanitize the observable trace into exact skill/reference reads, commands, file changes, final agent messages, usage, normalized evidence, and grader results; never publish reasoning content or authentication state.
@@ -117,7 +117,18 @@ Status: completed; post-1.0 and unreleased.
 - Run at least five independent paired replications on the transparent FIFO repair fixture. Treat this as a workflow-mechanism audit, not proof of general model uplift.
 - Add regression tests, CI/static coverage, packaging coverage, documentation, and a compact public result after the campaign is reviewed.
 
-The first five-pair FIFO campaign found a real but costly mechanism: both conditions produced externally correct candidates in 5/5 runs, skill-on produced complete bound lint/simulation/synthesis evidence in 5/5, but supplemental formal retry loops reduced skill-on task completion to 1/5 under 600 seconds versus 5/5 off. Timeout output decoding and task-success accounting were corrected, and the skill gained selective-reference and supplemental-evidence stopping rules. A fresh forward pair completed 1/1 in both conditions; skill-on retained complete evidence but used 534.6 seconds and 714,080 input tokens versus 303.0 seconds and 144,992 tokens off. This establishes observable activation and evidence behavior, not general correctness uplift; `effectiveness_status` remains `not_evaluated`.
+The first FIFO campaign exposed an open-ended supplemental-formal stopping failure and a timeout-trace decoder defect. Both were corrected and retained as historical audit evidence; its results are not used as the final six-class measurement.
+
+### M10 — Six-class Codex mechanism evaluation
+
+Status: completed; post-1.0 and unreleased.
+
+- Implemented executable public/private fixtures and independent graders for all six manifest classes, including mutation checks, protected-file checks, independent reference equivalence, real OpenSTA constraints, and native FST first-divergence validation.
+- Isolated the off condition from repository skill/runtime and inherited `PYTHONPATH`; bound prompt, fixture, hidden grader, harness, skill, runtime, combined payload, and sanitized report identities.
+- Separated external candidate correctness, contract deliverable completeness, timely task success, current structured evidence, and observed skill activation.
+- Corrected audit-discovered waveform leaf matching, equivalence input-domain semantics, FST evidence recognition, runtime leakage, and module-probe activation false positives before freezing the final harness.
+- Ran five independent off/on pairs for each class with the clean stable harness. On activation and complete structured evidence were 30/30; off was 0/30 for both. External candidate correctness was 30/30 on versus 28/30 off. Task success was 29/30 on versus 23/30 off: signed-width and STA each contributed one on-only success, all five FST pairs were on-only deliverables, and one otherwise-correct skill-on FIFO run timed out.
+- Published the reviewed report and machine-readable summary in `evals/results/`. The result validates the workflow/evidence mechanism, not a universal RTL correctness or efficiency uplift; the public manifest retains `effectiveness_status: not_evaluated` for that broader claim.
 
 ## Post-1.0 roadmap
 
@@ -138,5 +149,7 @@ The first five-pair FIFO campaign found a real but costly mechanism: both condit
 - 2026-08-31: The reviewed corpus lock reproduced byte-for-byte at hash `73855d55370257469793d7504c1fc79c74eb20a481ba42bfedd6ea54c0963046`; first import created 1,429 records, the identical retry created zero and changed no database bytes, and the post-sampling 1,457-event audit chain validated.
 - 2026-08-31: Post-corpus normal and optimized suites each passed 92 tests; ten JSON schemas, Ruff, strict mypy over 33 modules, Skill Creator validation, representative release audit, SQLite integrity/foreign keys, exact lock-to-database set equality, and sdist/wheel isolation scans passed.
 - 2026-08-31: Observable workflow audit added ten trace/grader regressions; normal and optimized suites each passed 102 tests. Ruff, strict mypy over 34 modules, ten schemas, Skill Creator validation, the public evaluation manifest, representative release audit, wheel/sdist metadata, and a 124-file sdist isolation/secret-shape scan passed. The reviewed five-pair report hash is `595c41f8f2442879f35acc4375d1e309f71fbc117fee8731c1b55cb728831428`; the corrected forward-pair report hash is `574db311ec0957f0d23d065cb817ba7f241bdb126b20dca0668887e0abc67dbe`.
+- 2026-09-01: Clean stable-harness six-class audit completed 60 runs after bytecode/symlink payload contamination was removed from both hashing and copied trees. All 30 on traces showed hash-matched isolated RTL-ASS activation and complete required structured evidence; all 30 off traces showed neither. Candidate correctness was 30/30 on versus 28/30 off and task success was 29/30 on versus 23/30 off, with seven on-only, one off-only, 22 both-success, and zero neither-success pairs. The heterogeneous five-pair cases support mechanism validity, not a general uplift claim. All six reports bind harness hash `7ea68fd2bbfdcc9aeb45f97847f0b0972fa08dc3139f8f8270ba93669d58e722` and on-payload hash `14eccf7a04e5db2a9a5bfce1092941d617098df2571db6729c9d1ef5ec514cea`.
+- 2026-09-01: Post-audit normal and optimized suites each passed 122 tests with `ResourceWarning` promoted to errors. Ruff, strict mypy over 36 checked files, ten schemas, Skill Creator validation, the six-case manifest, starter-pack validation, and the representative real-tool release audit passed. A zero-warning build produced a 37-file wheel, 159-file sdist, and 9-file standalone skill; `twine`, checksums, clean installation, required-fixture, forbidden-artifact, workstation-path, and credential-shape checks passed.
 
 The record is updated only from executed evidence. Final artifact hashes live in `SHA256SUMS`; commit, tag, and asset publication are evidenced by the immutable GitHub release rather than duplicated inside the files they hash.

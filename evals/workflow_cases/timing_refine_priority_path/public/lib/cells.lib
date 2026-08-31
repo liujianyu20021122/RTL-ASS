@@ -1,0 +1,87 @@
+library (rtl_ass_priority) {
+    delay_model : table_lookup;
+    time_unit : "1ns";
+    voltage_unit : "1V";
+    current_unit : "1mA";
+    capacitive_load_unit (1, pf);
+    leakage_power_unit : "1nW";
+
+    lu_table_template (delay_template) {
+        variable_1 : input_net_transition;
+        variable_2 : total_output_net_capacitance;
+        index_1 ("0.01");
+        index_2 ("0.01");
+    }
+
+    cell (INV_X1) {
+        area : 1.0;
+        pin (A) { direction : input; capacitance : 0.001; }
+        pin (Y) {
+            direction : output;
+            function : "!A";
+            timing () {
+                related_pin : "A";
+                timing_sense : negative_unate;
+                cell_rise (delay_template) { values ("0.08"); }
+                cell_fall (delay_template) { values ("0.08"); }
+                rise_transition (delay_template) { values ("0.02"); }
+                fall_transition (delay_template) { values ("0.02"); }
+            }
+        }
+    }
+
+    cell (AND2_X1) {
+        area : 1.0;
+        pin (A) { direction : input; capacitance : 0.001; }
+        pin (B) { direction : input; capacitance : 0.001; }
+        pin (Y) {
+            direction : output;
+            function : "A & B";
+            timing () {
+                related_pin : "A B";
+                timing_sense : positive_unate;
+                cell_rise (delay_template) { values ("0.08"); }
+                cell_fall (delay_template) { values ("0.08"); }
+                rise_transition (delay_template) { values ("0.02"); }
+                fall_transition (delay_template) { values ("0.02"); }
+            }
+        }
+    }
+
+    cell (OR2_X1) {
+        area : 1.0;
+        pin (A) { direction : input; capacitance : 0.001; }
+        pin (B) { direction : input; capacitance : 0.001; }
+        pin (Y) {
+            direction : output;
+            function : "A | B";
+            timing () {
+                related_pin : "A B";
+                timing_sense : positive_unate;
+                cell_rise (delay_template) { values ("0.08"); }
+                cell_fall (delay_template) { values ("0.08"); }
+                rise_transition (delay_template) { values ("0.02"); }
+                fall_transition (delay_template) { values ("0.02"); }
+            }
+        }
+    }
+
+    cell (MUX2_X1) {
+        area : 2.0;
+        pin (A) { direction : input; capacitance : 0.001; }
+        pin (B) { direction : input; capacitance : 0.001; }
+        pin (S) { direction : input; capacitance : 0.001; }
+        pin (Y) {
+            direction : output;
+            function : "(S & B) | (!S & A)";
+            timing () {
+                related_pin : "A B S";
+                timing_sense : non_unate;
+                cell_rise (delay_template) { values ("0.55"); }
+                cell_fall (delay_template) { values ("0.55"); }
+                rise_transition (delay_template) { values ("0.03"); }
+                fall_transition (delay_template) { values ("0.03"); }
+            }
+        }
+    }
+}

@@ -131,6 +131,12 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     equivalence.add_argument(
         "--depth", type=int, default=1, help="1 for combinational; larger values are bounded-sequential"
     )
+    equivalence.add_argument(
+        "--input-domain",
+        choices=("defined", "undefined"),
+        default="defined",
+        help="prove ordinary defined-bit behavior or also model undefined states",
+    )
     equivalence.add_argument("--artifact-dir", required=True)
     equivalence.add_argument("--timeout", type=int, default=120)
     equivalence.set_defaults(handler=_handle_verify_equivalence)
@@ -405,6 +411,7 @@ def _handle_verify_equivalence(args: argparse.Namespace) -> dict[str, Any]:
         reference_top=args.reference_top,
         implementation_top=args.implementation_top,
         depth=args.depth,
+        input_domain=args.input_domain,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
     )

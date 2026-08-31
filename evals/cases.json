@@ -15,7 +15,7 @@
       "id": "repair-non-power-of-two-fifo",
       "class": "repair",
       "prompt": "Diagnose and minimally repair a FIFO failure at a non-power-of-two depth without changing its external latency contract.",
-      "required_evidence": ["lint", "simulation", "formal"],
+      "required_evidence": ["lint", "simulation", "synthesis"],
       "acceptance": ["root cause attribution", "minimal patch", "depth-three wraparound", "underflow and overflow behavior", "regression replay"],
       "forbidden_shortcuts": ["restrict depth to powers of two", "rewrite checker to match bug", "change interface latency"]
     },

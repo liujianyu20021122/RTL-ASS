@@ -18,13 +18,21 @@ build/
 *.sqlite3
 *.vcd
 !tests/fixtures/*.vcd
+!evals/workflow_cases/waveform_first_divergence/private/*.vcd
 *.fst
+!evals/workflow_cases/waveform_first_divergence/public/trace/*.fst
 *.wdb
 *.saif
 *.log
 
 .rtl-ass/
 artifacts/
+!evals/workflow_cases/attribute_nba_scoreboard/public/artifacts/
+!evals/workflow_cases/attribute_nba_scoreboard/public/artifacts/README.md
+!evals/workflow_cases/timing_refine_priority_path/public/artifacts/
+!evals/workflow_cases/timing_refine_priority_path/public/artifacts/README.md
+!evals/workflow_cases/waveform_first_divergence/public/artifacts/
+!evals/workflow_cases/waveform_first_divergence/public/artifacts/README.md
 reports/
 research/upstream/
 research/conversation_rtl_mining.json
