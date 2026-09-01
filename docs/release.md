@@ -5,7 +5,7 @@ RTL-ASS uses semantic versioning. Schemas with `schema_version: 1.0`, CLI comman
 ## Release gate
 
 1. Freeze `PLAN.md`, `CHANGELOG.md`, package version, and skill contract.
-2. Run compilation, both normal and optimized test suites, Ruff format/lint, strict mypy, JSON Schema validation, and Skill Creator validation.
+2. Run compilation, both normal and optimized test suites, Ruff format/lint, strict mypy across all tracked Python modules in `src`, `tests`, `tools`, and `evals`, JSON Schema validation, and Skill Creator validation.
 3. Run the representative starter RTL through Verilator, Icarus, Yosys synthesis, and bounded formal; run the checked fixtures through equivalence, waveform/FST, and OpenSTA.
 4. Validate and atomically import the starter pack; verify its audit chain.
 5. Build wheel, sdist, standalone skill archive, SPDX SBOM, and checksums in a clean output directory.

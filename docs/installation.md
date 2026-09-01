@@ -38,7 +38,7 @@ python3 -m pip install --no-deps rtl_ass-1.1.0-py3-none-any.whl
 rtl-ass --version
 ```
 
-Compare release checksums with the signed-in GitHub release page. `rtl-ass-sbom.spdx.json` lists the first-party release package and file checksums.
+Compare release checksums with the signed-in GitHub release page. `rtl-ass-sbom.spdx.json` lists the three first-party payloads and their file checksums.
 
 ## Remove
 
