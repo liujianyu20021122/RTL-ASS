@@ -55,24 +55,24 @@ jobs:
         run: |
           python -m build
           python tools/build_release_assets.py
-          twine check dist/rtl_ass-1.0.0-py3-none-any.whl dist/rtl_ass-1.0.0.tar.gz
+          twine check dist/rtl_ass-1.1.0-py3-none-any.whl dist/rtl_ass-1.1.0.tar.gz
       - name: Installed CLI smoke
         run: |
           python -m venv build/ci-wheel-venv
-          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.0.0-py3-none-any.whl
+          build/ci-wheel-venv/bin/pip install --no-deps dist/rtl_ass-1.1.0-py3-none-any.whl
           build/ci-wheel-venv/bin/rtl-ass --version
           build/ci-wheel-venv/bin/rtl-ass verify formal --help
           build/ci-wheel-venv/bin/rtl-ass verify equiv --help
           skill_smoke_dir=$(mktemp -d)
-          unzip -q dist/rtl-ass-skill-1.0.0.zip -d "$skill_smoke_dir"
+          unzip -q dist/rtl-ass-skill-1.1.0.zip -d "$skill_smoke_dir"
           build/ci-wheel-venv/bin/python "$skill_smoke_dir/rtl-ass/scripts/rtl_ass.py" --version
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: matrix.python-version == '3.12'
         with:
           name: rtl-ass-release-candidate
           path: |
-            dist/rtl_ass-1.0.0-py3-none-any.whl
-            dist/rtl_ass-1.0.0.tar.gz
-            dist/rtl-ass-skill-1.0.0.zip
+            dist/rtl_ass-1.1.0-py3-none-any.whl
+            dist/rtl_ass-1.1.0.tar.gz
+            dist/rtl-ass-skill-1.1.0.zip
             dist/rtl-ass-sbom.spdx.json
             dist/SHA256SUMS

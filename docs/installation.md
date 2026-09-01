@@ -12,7 +12,7 @@ From a release download:
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install --no-deps rtl_ass-1.0.0-py3-none-any.whl
+.venv/bin/pip install --no-deps rtl_ass-1.1.0-py3-none-any.whl
 .venv/bin/rtl-ass --version
 .venv/bin/rtl-ass doctor
 ```
@@ -26,7 +26,7 @@ rtl-ass --version
 
 ## Install the Codex skill
 
-Extract `rtl-ass-skill-1.0.0.zip`. Copy the archive's `rtl-ass` directory into the configured Codex skills directory, preserving `SKILL.md`, `agents/`, `references/`, and `scripts/`. Keep the helper wheel installed so a standalone skill archive can call `rtl-ass`.
+Extract `rtl-ass-skill-1.1.0.zip`. Copy the archive's `rtl-ass` directory into the configured Codex skills directory, preserving `SKILL.md`, `agents/`, `references/`, and `scripts/`. Keep the helper wheel installed so a standalone skill archive can call `rtl-ass`.
 
 For repository development, Codex can use `.agents/skills/rtl-ass/` directly and its launcher imports `src/rtl_ass` from the checkout.
 
@@ -34,7 +34,7 @@ For repository development, Codex can use `.agents/skills/rtl-ass/` directly and
 
 ```bash
 (cd path/to/downloaded/assets && sha256sum --check SHA256SUMS)
-python3 -m pip install --no-deps rtl_ass-1.0.0-py3-none-any.whl
+python3 -m pip install --no-deps rtl_ass-1.1.0-py3-none-any.whl
 rtl-ass --version
 ```
 

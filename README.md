@@ -1,10 +1,10 @@
-# RTL-ASS 1.0
+# RTL-ASS 1.1
 
 RTL-ASS is a vendor-neutral Codex skill for Verilog and SystemVerilog engineering. It augments Codex with RTL-specific task routing, deterministic open-source evidence adapters, bounded VCD/FST analysis, and an audited local knowledge index. Codex remains responsible for understanding the specification, editing code, interpreting evidence, and selecting the final implementation.
 
 RTL-ASS does not call another model, generate RTL behind Codex's back, apply patches, or depend on proprietary EDA tools.
 
-## 1.0 capabilities
+## 1.1 capabilities
 
 - Verilog/SystemVerilog repository inspection without executing source.
 - Verilator lint and Icarus Verilog self-checking simulation evidence.
@@ -14,6 +14,8 @@ RTL-ASS does not call another model, generate RTL behind Codex's back, apply pat
 - SQLite/FTS5 namespaces, immutable content identity, explicit RTL/TB/assertion roles, guarded lifecycle transitions, and append-only hash-chained audit events.
 - Atomic verification/observation workflows, explicit failure attribution, candidate derivation, and portable license-aware knowledge packs.
 - A first-party Apache-2.0 starter pack with RTL, TB, assertions, and focused engineering cards.
+- A reviewed 1,429-file open-source HDL corpus lock with isolated provenance and lifecycle state; upstream code is not redistributed.
+- A six-class paired Codex workflow audit covering RTL generation, repair, RTL/TB attribution, SystemVerilog signed arithmetic, FST localization, and OpenSTA-driven refinement.
 
 The core Python package uses only the standard library. EDA programs are optional open-source executables discovered at runtime.
 
@@ -22,7 +24,7 @@ The core Python package uses only the standard library. EDA programs are optiona
 Python 3.11 or 3.12 is supported.
 
 ```bash
-python3 -m pip install rtl_ass-1.0.0-py3-none-any.whl
+python3 -m pip install rtl_ass-1.1.0-py3-none-any.whl
 rtl-ass --version
 rtl-ass doctor
 ```
@@ -82,7 +84,7 @@ python3 -m build
 twine check dist/*
 ```
 
-Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). Release procedures are in [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
+Evaluation scope and non-claims are documented in [evaluation](docs/evaluation.md); the reviewed six-class Codex workflow audit is in [evals/results](evals/results/2026-09-01-codex-multitask-workflow-audit.md). See the [v1.1.0 release notes](docs/releases/v1.1.0.md) and [release process](docs/release.md). Contributions are governed by [CONTRIBUTING.md](CONTRIBUTING.md) and the root [AGENTS.md](AGENTS.md).
 
 ## License
 

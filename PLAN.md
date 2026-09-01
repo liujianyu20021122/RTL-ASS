@@ -1,4 +1,4 @@
-# RTL-ASS 1.0 plan and acceptance record
+# RTL-ASS 1.x plan and acceptance record
 
 ## Objective
 
@@ -85,7 +85,7 @@ Status: completed for 1.0 scope.
 
 ### M6 — Static, packaging, and clean-install release gate
 
-Status: completed for the frozen 1.0 source.
+Status: completed for the frozen 1.0 source and rerun for the 1.1.0 release candidate.
 
 - Required: compilation; normal and optimized unit suites; Ruff format/lint; strict mypy; Draft 2020-12 schema checks; Skill Creator validation; evaluation manifest validation.
 - Required: representative release audit across lint, simulation, waveform VCD/FST, bounded formal pass/counterexample, equivalence pass/mismatch, synthesis, OpenSTA, pack import/idempotency, and audit chain.
@@ -100,7 +100,7 @@ Status: completed by the `v1.0.0` tag and corresponding public GitHub Release; t
 
 ### M8 — Reviewed local corpus import
 
-Status: completed after 1.0; unreleased.
+Status: completed after 1.0; included in the 1.1.0 release candidate.
 
 - Audited 21 research sources and recorded seven inclusions plus fourteen explicit exclusions. Unknown-license, benchmark-answer, generated-bulk, proprietary-flow, and intentionally broken sources remain outside engineering retrieval.
 - Added a deterministic semantic lock for 1,429 tracked Verilog/SystemVerilog files (6,621,871 bytes) across isolated source namespaces; no upstream HDL is committed or packaged.
@@ -109,7 +109,7 @@ Status: completed after 1.0; unreleased.
 
 ### M9 — Observable Codex workflow audit
 
-Status: completed and superseded by the six-class audit; post-1.0 and unreleased.
+Status: completed and superseded by the six-class audit; included in the 1.1.0 release candidate.
 
 - Add isolated skill-off/skill-on `codex exec --json` runs with an identical prompt, model, budget, public fixture, and external hidden grader.
 - Sanitize the observable trace into exact skill/reference reads, commands, file changes, final agent messages, usage, normalized evidence, and grader results; never publish reasoning content or authentication state.
@@ -121,7 +121,7 @@ The first FIFO campaign exposed an open-ended supplemental-formal stopping failu
 
 ### M10 — Six-class Codex mechanism evaluation
 
-Status: completed; post-1.0 and unreleased.
+Status: completed; included in the 1.1.0 release candidate.
 
 - Implemented executable public/private fixtures and independent graders for all six manifest classes, including mutation checks, protected-file checks, independent reference equivalence, real OpenSTA constraints, and native FST first-divergence validation.
 - Isolated the off condition from repository skill/runtime and inherited `PYTHONPATH`; bound prompt, fixture, hidden grader, harness, skill, runtime, combined payload, and sanitized report identities.
@@ -130,7 +130,16 @@ Status: completed; post-1.0 and unreleased.
 - Ran five independent off/on pairs for each class with the clean stable harness. On activation and complete structured evidence were 30/30; off was 0/30 for both. External candidate correctness was 30/30 on versus 28/30 off. Task success was 29/30 on versus 23/30 off: signed-width and STA each contributed one on-only success, all five FST pairs were on-only deliverables, and one otherwise-correct skill-on FIFO run timed out.
 - Published the reviewed report and machine-readable summary in `evals/results/`. The result validates the workflow/evidence mechanism, not a universal RTL correctness or efficiency uplift; the public manifest retains `effectiveness_status: not_evaluated` for that broader claim.
 
-## Post-1.0 roadmap
+### M11 — v1.1.0 formal release
+
+Status: audited local release candidate prepared; remote publication requires explicit user approval.
+
+- Preserve the existing immutable `v1.0.0` tag and GitHub Release; publish the audited corpus and six-class workflow work under a new `v1.1.0` version.
+- Freeze package, CLI, release-audit, asset-builder, CI, installation, Changelog, and release-note versions with an executable consistency regression.
+- Rerun normal/optimized tests, static and Skill/schema gates, the representative open-tool audit, clean builds, Twine, checksums, clean installation, and distribution leakage scans.
+- Prepare five reviewed assets with deterministic standalone Skill packaging and SHA-256 identities, plus an annotated-tag command; do not create or push the tag, update `main`, or create the GitHub Release until approval.
+
+## Post-1.1 roadmap
 
 - Controlled paired Codex skill-off/skill-on campaigns across multiple task classes; use fixed seeds only when the evaluated interface exposes them.
 - Additional first-party packs for FIFO, arbiter, CDC/reset, memory, arithmetic, FSM, and reusable assertion/TB patterns; each requires compatible licensing and executable evidence.
@@ -151,5 +160,6 @@ Status: completed; post-1.0 and unreleased.
 - 2026-08-31: Observable workflow audit added ten trace/grader regressions; normal and optimized suites each passed 102 tests. Ruff, strict mypy over 34 modules, ten schemas, Skill Creator validation, the public evaluation manifest, representative release audit, wheel/sdist metadata, and a 124-file sdist isolation/secret-shape scan passed. The reviewed five-pair report hash is `595c41f8f2442879f35acc4375d1e309f71fbc117fee8731c1b55cb728831428`; the corrected forward-pair report hash is `574db311ec0957f0d23d065cb817ba7f241bdb126b20dca0668887e0abc67dbe`.
 - 2026-09-01: Clean stable-harness six-class audit completed 60 runs after bytecode/symlink payload contamination was removed from both hashing and copied trees. All 30 on traces showed hash-matched isolated RTL-ASS activation and complete required structured evidence; all 30 off traces showed neither. Candidate correctness was 30/30 on versus 28/30 off and task success was 29/30 on versus 23/30 off, with seven on-only, one off-only, 22 both-success, and zero neither-success pairs. The heterogeneous five-pair cases support mechanism validity, not a general uplift claim. All six reports bind harness hash `7ea68fd2bbfdcc9aeb45f97847f0b0972fa08dc3139f8f8270ba93669d58e722` and on-payload hash `14eccf7a04e5db2a9a5bfce1092941d617098df2571db6729c9d1ef5ec514cea`.
 - 2026-09-01: Post-audit normal and optimized suites each passed 122 tests with `ResourceWarning` promoted to errors. Ruff, strict mypy over 36 checked files, ten schemas, Skill Creator validation, the six-case manifest, starter-pack validation, and the representative real-tool release audit passed. A zero-warning build produced a 37-file wheel, 159-file sdist, and 9-file standalone skill; `twine`, checksums, clean installation, required-fixture, forbidden-artifact, workstation-path, and credential-shape checks passed.
+- 2026-09-01: The v1.1.0 candidate normal and optimized suites each passed 123 tests, including a regression that preserves the historical evaluated runtime identity across the version-only package change. Compilation, Ruff, strict mypy over the CI release boundary, ten schemas, Skill Creator validation, the six-case manifest, starter-pack validation, and the representative real-tool release audit passed. A zero-warning build produced a 37-file wheel, 160-file sdist, and deterministic 9-file standalone Skill; `twine`, four recorded asset checksums, clean installation, metadata/dependency checks, three explicitly allowed waveform fixtures, and forbidden-artifact/workstation-path/credential-shape scans passed. Local and remote `v1.1.0` remain absent pending approval.
 
 The record is updated only from executed evidence. Final artifact hashes live in `SHA256SUMS`; commit, tag, and asset publication are evidenced by the immutable GitHub release rather than duplicated inside the files they hash.
