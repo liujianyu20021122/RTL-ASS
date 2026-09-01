@@ -132,12 +132,12 @@ Status: completed; included in the 1.1.0 release candidate.
 
 ### M11 — v1.1.0 formal release
 
-Status: audited local release candidate prepared; remote publication requires explicit user approval.
+Status: publication approved; `main` published; tag and GitHub Release remain gated on clean public CI.
 
 - Preserve the existing immutable `v1.0.0` tag and GitHub Release; publish the audited corpus and six-class workflow work under a new `v1.1.0` version.
 - Freeze package, CLI, release-audit, asset-builder, CI, installation, Changelog, and release-note versions with an executable consistency regression.
 - Rerun normal/optimized tests, static and Skill/schema gates, the representative open-tool audit, clean builds, Twine, checksums, clean installation, and distribution leakage scans.
-- Prepare five reviewed assets with deterministic standalone Skill packaging and SHA-256 identities, plus an annotated-tag command; do not create or push the tag, update `main`, or create the GitHub Release until approval.
+- Prepare five reviewed assets with deterministic standalone Skill packaging and SHA-256 identities. Approval was received before updating `main`; create the annotated tag and GitHub Release only after the final commit passes public CI.
 
 ## Post-1.1 roadmap
 
@@ -162,5 +162,7 @@ Status: audited local release candidate prepared; remote publication requires ex
 - 2026-09-01: Post-audit normal and optimized suites each passed 122 tests with `ResourceWarning` promoted to errors. Ruff, strict mypy over 36 checked files, ten schemas, Skill Creator validation, the six-case manifest, starter-pack validation, and the representative real-tool release audit passed. A zero-warning build produced a 37-file wheel, 159-file sdist, and 9-file standalone skill; `twine`, checksums, clean installation, required-fixture, forbidden-artifact, workstation-path, and credential-shape checks passed.
 - 2026-09-01: The v1.1.0 candidate normal and optimized suites each passed 123 tests, including a regression that preserves the historical evaluated runtime identity across the version-only package change. Compilation, Ruff, strict mypy over all tracked `src`, `tests`, `tools`, and `evals` Python modules, ten schemas, Skill Creator validation, the six-case manifest, starter-pack validation, and the representative real-tool release audit passed. A zero-warning build produced a 37-file wheel, 160-file sdist, and deterministic 9-file standalone Skill; `twine`, four recorded asset checksums, clean installation, metadata/dependency checks, three explicitly allowed waveform fixtures, and forbidden-artifact/workstation-path/credential-shape scans passed. Local and remote `v1.1.0` remain absent pending approval.
 - 2026-09-01: The documentation freeze audit covered all 39 tracked Markdown files, 21 internal links, and 29 CLI command paths. UTF-8/LF, final-newline, fence, heading, whitespace, link-target, current-version wording, workstation-path, proprietary-coupling, numeric corpus/evaluation/pack claims, and 39-of-39 sdist inclusion checks passed. Ignored historical research notes are explicitly marked non-canonical and excluded from Git, the Skill, and release packages.
+- 2026-09-01: The first approved public v1.1 candidate CI run `33468495513` rejected two local-only assumptions before tagging: FST container bytes varied across GTKWave converter versions, and Yosys 0.33 left sequential output cells unproven with `equiv_simple` alone. The shared evidence flow now uses the standard `equiv_simple` plus `equiv_induct` completion sequence, and the waveform regression separately pins the committed container hash and compares decoded bounded semantics. Both repairs reproduce against the Ubuntu Yosys 0.33 tool floor; final publication remains gated on a clean rerun.
+- 2026-09-01: After the portability repair, normal and optimized suites each passed all 123 tests with `ResourceWarning` promoted to errors. The complete normal suite also passed against an extracted Ubuntu Yosys 0.33/Yosys-ABC pair; the sequential reference passed while the independent mismatch and broken-fixture regressions remained rejecting. Compilation, Ruff, strict mypy over 53 modules, ten schemas, Skill Creator validation, the six-case manifest, starter pack, and the representative open-tool release audit passed.
 
 The record is updated only from executed evidence. Final artifact hashes live in `SHA256SUMS`; commit, tag, and asset publication are evidenced by the immutable GitHub release rather than duplicated inside the files they hash.
