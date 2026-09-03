@@ -48,7 +48,7 @@ jobs:
           python evals/validate_cases.py evals/cases.json
           rtl-ass kb pack-validate library/starter/pack.json
       - name: Unit tests
-        run: PYTHONPATH=src python -m unittest discover -s tests -v
+        run: tools/ci_run_audited.sh "Unit tests" build/ci-logs/unit-tests.log env PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Unit tests without runtime assertions
         run: PYTHONOPTIMIZE=1 PYTHONPATH=src python -m unittest discover -s tests -v
       - name: Build release distributions
@@ -100,6 +100,7 @@ jobs:
           sudo apt-get install --yes autoconf automake bison cmake flex gawk gtkwave iverilog libeigen3-dev libtool swig tcl-dev verilator yosys zlib1g-dev
       - name: Build pinned CUDD 3.0.0 and OpenSTA 3.1.0
         run: |
+          tools/ci_run_audited.sh "OpenSTA source build" build/ci-logs/opensta-build.log bash -euo pipefail <<'BASH'
           git init build/cudd-source
           git -C build/cudd-source remote add origin https://github.com/cuddorg/cudd.git
           git -C build/cudd-source fetch --depth 1 origin f54f533303640afd5dbe47a05ebeabb3066f2a25
@@ -117,6 +118,7 @@ jobs:
           cmake -S build/opensta-source -B build/opensta-source/build -DCMAKE_BUILD_TYPE=RELEASE -DBUILD_TESTS=OFF -DUSE_TCL_READLINE=OFF -DCUDD_DIR="$GITHUB_WORKSPACE/build/cudd-install"
           cmake --build build/opensta-source/build --parallel 2
           echo "$GITHUB_WORKSPACE/build/opensta-source/build" >> "$GITHUB_PATH"
+          BASH
       - name: Install package and audit dependencies
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
       - name: Require real OpenSTA adapter and workflow coverage
@@ -145,6 +147,7 @@ jobs:
           python -m pip install --require-hashes --no-deps --target build/formal-install -r .github/formal-requirements.txt
       - name: Build matching Yosys, SymbiYosys, and EQY v0.68 sources
         run: |
+          tools/ci_run_audited.sh "Formal driver source build" build/ci-logs/formal-build.log bash -euo pipefail <<'BASH'
           git init build/yosys-source
           git -C build/yosys-source remote add origin https://github.com/YosysHQ/yosys.git
           git -C build/yosys-source fetch --depth 1 origin 5d64ef308395b7a1f6c78f9c7046cdb3d8608549
@@ -172,6 +175,7 @@ jobs:
             PREFIX="$GITHUB_WORKSPACE/build/formal-install" \
             YOSYS_CONFIG="$GITHUB_WORKSPACE/build/formal-install/bin/yosys-config"
           echo "$GITHUB_WORKSPACE/build/formal-install/bin" >> "$GITHUB_PATH"
+          BASH
       - name: Require real native formal and equivalence evidence
         run: |
           python -m pip install --upgrade pip
