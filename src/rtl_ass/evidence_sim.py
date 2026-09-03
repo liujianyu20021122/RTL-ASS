@@ -149,6 +149,7 @@ def run_verilator_simulation(
         compiler,
         "--binary",
         "--timing",
+        "-Wno-fatal",
         "--top-module",
         bundle.top,
         "--Mdir",

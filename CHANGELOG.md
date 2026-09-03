@@ -12,6 +12,8 @@ All notable changes use semantic versioning.
 - Added explicit all-token/any-token FTS modes after real Codex traces showed that long natural-language AND queries could silently miss a relevant card; no hidden fallback is performed.
 - Added a contamination-gated retrieval A/B mode that keeps RTL-ASS constant, distinguishes returned cards from full-content reads, and reports retrieval effects independently from correctness and infrastructure.
 - Replaced substring-based EDA command classification with parsed helper subcommands and exact tool executables, preventing log-inspection paths from becoming false post-ready evidence findings.
+- Made Verilator binary simulation retain warnings as evidence without treating warning-only compilations as fatal; real compile errors and nonzero simulations still fail.
+- Bound source-built OpenSTA and formal CI gates to Ubuntu's installed CMake instead of the runner's mutable preinstalled CMake selection, and added bounded public failure annotations without masking exit status.
 
 ## 1.2.0 — 2026-09-01
 

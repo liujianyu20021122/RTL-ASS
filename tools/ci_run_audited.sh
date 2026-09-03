@@ -34,7 +34,7 @@ if (( command_status == 0 )); then
     command_status=$tee_status
 fi
 
-diagnostic=$(tail -n 40 -- "$log_path" | tail -c 12000 | tr -d '\000')
+diagnostic=$(tail -n 20 -- "$log_path" | tail -c 8000 | tr -d '\000')
 diagnostic=${diagnostic//'%'/'%25'}
 diagnostic=${diagnostic//$'\r'/'%0D'}
 diagnostic=${diagnostic//$'\n'/'%0A'}
