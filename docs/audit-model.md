@@ -22,7 +22,13 @@ Tool evidence captures one CompileManifest identity covering language, ordered s
 
 Non-passing observation uses the same artifact and run-evidence rechecks. Its attribution is stored on the relationship, not inside objective tool evidence. Identical retries are no-ops; attempting to re-attribute the same evidence/target pair differently is rejected rather than creating contradictory learning edges.
 
+Verification-plan summaries do not create a new correctness claim. They bind a canonical plan hash to explicit evidence-file hashes, revalidate each current subject/artifact, and report missing claims, non-passing status, repeated `(kind, input_hash)` executions, and retry-budget excess. A successful `--require-ready` command means only that every Codex-declared required claim has its expected current evidence. The workflow evaluator records any later EDA command as a separate efficiency finding; it does not rewrite correctness, policy-compliance, or infrastructure results.
+
+CLI evidence runs use an advisory per-workspace lock with a bounded wait. Lock acquisition and release are owned by one central context; a contender cannot clear the holder metadata, and abnormal process termination releases the kernel lock. This prevents accidental inner-tool concurrency but is not a host-wide scheduler or an autonomous pipeline.
+
 Knowledge derivation and pack import share the transaction boundary. Derived candidates record the source content hash and create their `derived-from` link atomically. Pack identity, contained paths, content hashes, licenses, roles, and relationships are validated before database writes; an identical retry adds no audit events, while immutable-field conflicts roll back the complete import.
+
+Searches can write immutable retrieval receipts without mutating the database. Workflow evaluation validates the receipt hash and records returned IDs/content hashes separately from successful `kb show --include-content` actions, so retrieval, inspection, and correctness cannot be conflated.
 
 ## Corpus boundary
 

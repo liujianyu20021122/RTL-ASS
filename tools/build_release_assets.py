@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build deterministic skill, SPDX SBOM, and checksum assets for RTL-ASS 1.2."""
+"""Build deterministic skill, SPDX SBOM, and checksum assets for RTL-ASS 1.3."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 SKILL_FILES = (
     "SKILL.md",
     "agents/openai.yaml",
@@ -231,7 +231,7 @@ def build_assets(dist: Path) -> list[Path]:
         "documentNamespace": f"https://github.com/liujianyu20021122/RTL-ASS/releases/tag/v{VERSION}/sbom",
         "creationInfo": {
             "created": "2026-09-01T00:00:00Z",
-            "creators": ["Tool: RTL-ASS-build_release_assets-1.2.0"],
+            "creators": ["Tool: RTL-ASS-build_release_assets-1.3.0"],
             "licenseListVersion": "3.27",
         },
         "packages": packages,

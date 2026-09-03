@@ -15,6 +15,45 @@ from rtl_ass.kb.schema import SCHEMA_VERSION
 
 
 class CliTests(unittest.TestCase):
+    def test_verification_plan_and_summary_are_machine_readable(self) -> None:
+        plan = {
+            "schema_version": "1.0",
+            "plan_id": "cli-smoke",
+            "task_class": "verification",
+            "claims": [
+                {
+                    "id": "simulation",
+                    "statement": "The supplied self-checking simulation passes.",
+                    "evidence_kind": "simulation",
+                    "requirement": "required",
+                    "expected_status": "pass",
+                }
+            ],
+            "stop_policy": {"max_retries_per_claim": 0, "max_parallel_eda": 1},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "verification-plan.json"
+            path.write_text(json.dumps(plan), encoding="utf-8")
+            validation_output = io.StringIO()
+            with contextlib.redirect_stdout(validation_output):
+                validation_status = main(["verify", "plan", str(path)])
+            summary_output = io.StringIO()
+            with contextlib.redirect_stdout(summary_output):
+                summary_status = main(["verify", "summarize", "--plan", str(path)])
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                required_status = main(["verify", "summarize", "--plan", str(path), "--require-ready"])
+
+        validation = json.loads(validation_output.getvalue())
+        summary = json.loads(summary_output.getvalue())
+        self.assertEqual(validation_status, 0)
+        self.assertEqual(summary_status, 0)
+        self.assertEqual(len(validation["plan_hash"]), 64)
+        self.assertFalse(summary["ready_to_stop"])
+        self.assertEqual(summary["missing_required_claims"], ["simulation"])
+        self.assertEqual(required_status, 2)
+        self.assertEqual(json.loads(error.getvalue())["error"]["code"], "verification_plan_unsatisfied")
+
     def test_manifest_validation_and_inline_conflict_are_structured(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

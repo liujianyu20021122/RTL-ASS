@@ -1,0 +1,30 @@
+{
+  "schema_version": "1.0",
+  "name": "rtl-ass-signed-width-ablation",
+  "version": "1.0.0",
+  "description": "Contamination-reviewed diagnostic guidance for a retrieval ablation; contains no RTL, testbench, reference implementation, expected patch, or grader output.",
+  "license_spdx": "Apache-2.0",
+  "records": [
+    {
+      "key": "signed-expression-audit",
+      "role": "design-pattern",
+      "language": "markdown",
+      "title": "Audit widths and signedness before assignment",
+      "summary": "A diagnostic checklist for expression sizing, signed comparisons, arithmetic bounds, and sequential observation latency.",
+      "content_hash": "a54605a576f8c7da720d2c02ff22e6ebcc87b343308182f5de87ef2e5c50c1ed",
+      "source_uri": "https://github.com/liujianyu20021122/RTL-ASS",
+      "source_revision": "v1.3.0",
+      "source_path": "evals/retrieval_packs/signed-width/cards/signed-expression-audit.md",
+      "license_spdx": "Apache-2.0",
+      "license_status": "known",
+      "metadata": {
+        "contamination_review": "no-task-source-no-test-no-reference-no-patch-no-grader-output",
+        "evaluation_case_class": "systemverilog-semantics",
+        "scope": "diagnostic-checklist"
+      },
+      "content_path": "cards/signed-expression-audit.md"
+    }
+  ],
+  "links": [],
+  "pack_hash": "b2283894638b635c0817b0ba5cb9687043de632516bc2fcfb63dcce04bdabb2e"
+}

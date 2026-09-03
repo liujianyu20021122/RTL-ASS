@@ -74,7 +74,7 @@ class SkillContractTests(unittest.TestCase):
 
     def test_release_version_is_consistent(self) -> None:
         project = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["project"]
-        self.assertEqual(__version__, "1.2.0")
+        self.assertEqual(__version__, "1.3.0")
         self.assertEqual(project["version"], __version__)
         self.assertEqual(_string_constant(ROOT / "tools" / "build_release_assets.py", "VERSION"), __version__)
         self.assertEqual(_string_constant(ROOT / "tools" / "release_audit.py", "RELEASE_VERSION"), __version__)

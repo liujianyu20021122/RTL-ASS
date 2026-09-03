@@ -14,7 +14,9 @@ from rtl_ass.evidence import run_iverilog_simulation, run_yosys_equivalence, run
 from rtl_ass.kb.database import KnowledgeDatabase
 from rtl_ass.kb.gates import build_observation_set, build_verification_gate
 from rtl_ass.kb.packs import knowledge_pack_hash, validate_knowledge_pack
+from rtl_ass.kb.retrieval import build_retrieval_receipt
 from rtl_ass.waveform import query_waveform
+from rtl_ass.workflow import validate_verification_plan
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURES = ROOT / "tests" / "fixtures"
@@ -27,6 +29,55 @@ def validate_instance(schema: dict[str, object], instance: object) -> None:
 
 
 class SchemaContractTests(unittest.TestCase):
+    def test_retrieval_receipt_matches_declared_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            database = KnowledgeDatabase(Path(directory) / "index.db")
+            database.initialize(actor="test-suite")
+            database.import_pack(
+                ROOT / "library" / "starter" / "pack.json",
+                namespace="builtin:starter",
+                actor="test-suite",
+            )
+            receipt = build_retrieval_receipt(
+                database.search("ready", namespaces=["builtin:starter"], limit=2),
+                actor="codex",
+                query="ready",
+                namespaces=["builtin:starter"],
+                limit=2,
+                role=None,
+                status=None,
+                match_mode="all",
+            )
+        validate_instance(SCHEMAS["retrieval-receipt.schema.json"], receipt)
+        self.assertEqual(receipt["result_count"], len(receipt["results"]))
+
+    def test_verification_plan_matches_declared_contract(self) -> None:
+        plan = {
+            "schema_version": "1.0",
+            "plan_id": "schema-contract",
+            "task_class": "debugging",
+            "claims": [
+                {
+                    "id": "regression",
+                    "statement": "The supplied regression passes.",
+                    "evidence_kind": "simulation",
+                    "requirement": "required",
+                    "expected_status": "pass",
+                },
+                {
+                    "id": "divergence",
+                    "statement": "The first relevant divergence is present.",
+                    "evidence_kind": "waveform",
+                    "requirement": "optional",
+                    "expected_status": "found",
+                },
+            ],
+            "stop_policy": {"max_retries_per_claim": 1, "max_parallel_eda": 1},
+        }
+        validated = validate_verification_plan(plan)
+        validate_instance(SCHEMAS["verification-plan.schema.json"], validated.value)
+        self.assertEqual(len(validated.plan_hash), 64)
+
     def test_knowledge_statistics_match_declared_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             database = KnowledgeDatabase(Path(directory) / "index.db")

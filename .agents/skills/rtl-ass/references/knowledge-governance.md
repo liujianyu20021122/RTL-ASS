@@ -35,7 +35,11 @@ Validate a portable pack before import. Import into an explicit namespace as `ra
 
 ## Retrieval
 
-Search the project namespace first, then explicitly selected user, organization, or built-in namespaces. Request a small top-k set. Prefer matching role, language, interface/protocol, clock/reset assumptions, and verification state over textual similarity alone. Inspect source, license, limitations, and negative evidence before reuse.
+Search the project namespace first, then explicitly selected user, organization, or built-in namespaces. Request a small top-k set. Use `--match all` for a precise short query and explicit `--match any` for exploratory multi-term retrieval; there is no hidden fallback between them. Prefer matching role, language, interface/protocol, clock/reset assumptions, and verification state over textual similarity alone. Inspect source, license, limitations, and negative evidence before reuse.
+
+For material work, write the search result as a retrieval receipt with the exact actor, query, namespaces, filters, limit, ordered record IDs, content hashes, provenance, license state, and ranking data. A returned summary is not evidence that Codex inspected the record: use `kb show <id> --include-content` only for selected results. Keep the receipt with task artifacts so evaluation can distinguish retrieval, content inspection, and actual correctness.
+
+Measure retrieval value with a paired retrieval-off/retrieval-on experiment that keeps the Skill, prompt, model, effort, tools, public fixture, grader, and resource policy fixed. The on-only pack must be bounded, license-compatible, hash-distinct from public and hidden task artifacts, and manually reviewed to contain no task source, test, reference implementation, expected patch, or grader output. Retrieval occurrence or corpus size alone is not an improvement claim.
 
 ## GitHub corpus
 

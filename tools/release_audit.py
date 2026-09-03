@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the representative RTL-ASS 1.2 open-tool and knowledge release audit."""
+"""Run the representative RTL-ASS 1.3 open-tool and knowledge release audit."""
 
 from __future__ import annotations
 
@@ -23,11 +23,13 @@ from rtl_ass.evidence import (
 from rtl_ass.integrity import utc_now
 from rtl_ass.kb import KnowledgeDatabase
 from rtl_ass.kb.packs import load_knowledge_pack
+from rtl_ass.kb.retrieval import build_retrieval_receipt, validate_retrieval_receipt, write_retrieval_receipt
 from rtl_ass.tools import discover_tools
 from rtl_ass.waveform import first_divergence_waveform, query_waveform
+from rtl_ass.workflow import summarize_verification_plan, validate_verification_plan
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.2.0"
+RELEASE_VERSION = "1.3.0"
 
 
 def _expect(result: dict[str, Any], expected: str, label: str) -> dict[str, Any]:
@@ -170,6 +172,40 @@ def run_audit(output: Path) -> dict[str, Any]:
     if checks["fst_divergence"].get("status") != "found":
         raise RuntimeError("FST fixture did not produce the expected divergence")
 
+    verification_plan = validate_verification_plan(
+        {
+            "schema_version": "1.0",
+            "plan_id": "release-starter",
+            "task_class": "verification",
+            "claims": [
+                {
+                    "id": "lint",
+                    "statement": "The starter RTL passes lint.",
+                    "evidence_kind": "lint",
+                    "requirement": "required",
+                    "expected_status": "pass",
+                },
+                {
+                    "id": "simulation",
+                    "statement": "The starter self-checking simulation passes.",
+                    "evidence_kind": "simulation",
+                    "requirement": "required",
+                    "expected_status": "pass",
+                },
+            ],
+            "stop_policy": {"max_retries_per_claim": 0, "max_parallel_eda": 1},
+        }
+    )
+    checks["verification_workflow"] = summarize_verification_plan(
+        verification_plan,
+        [
+            f"lint={checks['lint']['evidence_file']}",
+            f"simulation={checks['simulation']['evidence_file']}",
+        ],
+    )
+    if not checks["verification_workflow"]["ready_to_stop"]:
+        raise RuntimeError("starter verification workflow did not reach its required stopping gate")
+
     pack = load_knowledge_pack(starter / "pack.json")
     database = KnowledgeDatabase(run_root / "starter.db")
     database.initialize(actor="release-audit")
@@ -178,6 +214,34 @@ def run_audit(output: Path) -> dict[str, Any]:
     audit_chain = database.verify_audit_chain()
     if imported["created_count"] != 5 or repeated["created_count"] != 0 or not audit_chain["valid"]:
         raise RuntimeError("starter knowledge-pack transaction or audit-chain check failed")
+    retrieval_query = "ready absent-token"
+    if database.search(
+        retrieval_query,
+        namespaces=["builtin:starter"],
+        limit=3,
+        match_mode="all",
+    ):
+        raise RuntimeError("strict all-token retrieval unexpectedly matched an absent term")
+    retrieval_results = database.search(
+        retrieval_query,
+        namespaces=["builtin:starter"],
+        limit=3,
+        match_mode="any",
+    )
+    retrieval_receipt = build_retrieval_receipt(
+        retrieval_results,
+        actor="release-audit",
+        query=retrieval_query,
+        namespaces=["builtin:starter"],
+        limit=3,
+        role=None,
+        status=None,
+        match_mode="any",
+    )
+    retrieval_path = write_retrieval_receipt(retrieval_receipt, run_root / "retrieval.json")
+    checks["retrieval"] = validate_retrieval_receipt(json.loads(retrieval_path.read_text(encoding="utf-8")))
+    if checks["retrieval"]["result_count"] < 1:
+        raise RuntimeError("explicit any-token retrieval did not return the expected bounded card")
 
     summary = {
         "schema_version": "1.0",

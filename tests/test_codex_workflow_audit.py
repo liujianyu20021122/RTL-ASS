@@ -12,6 +12,7 @@ from evals.run_codex_ab import (
     REASONING_EFFORTS,
     ResourcePolicy,
     TransportPolicy,
+    _command_kinds,
     _command_policy_findings,
     _current_passed_evidence_kinds,
     _disabled_host_skill_paths,
@@ -26,18 +27,275 @@ from evals.run_codex_ab import (
     _prepare_workspace,
     _resource_command,
     _subprocess_text,
+    _validate_retrieval_ablation_pack,
     _wilson_interval,
     _workflow_audit,
+    _workflow_efficiency,
     _workspace_evidence,
+    _workspace_retrieval,
 )
 from evals.workflow_cases import get_case
+from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import hash_file
+from rtl_ass.kb.database import KnowledgeDatabase
+from rtl_ass.kb.retrieval import build_retrieval_receipt, write_retrieval_receipt
 from rtl_ass.waveform import query_waveform
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class CodexWorkflowTraceTests(unittest.TestCase):
+    def test_evidence_command_detection_uses_executables_and_helper_subcommands(self) -> None:
+        self.assertEqual(
+            _command_kinds("tail -60 artifacts/final-equivalence/yosys.log; nl -ba rtl/sat_add_pipe.sv"),
+            set(),
+        )
+        self.assertEqual(
+            _command_kinds(
+                "python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --backend yosys; "
+                "rtl-ass verify simulate --source dut.sv"
+            ),
+            {"equivalence", "simulation"},
+        )
+        self.assertEqual(
+            _command_kinds("yosys -p 'read_verilog dut.v; synth; sat -prove ok 1'"), {"formal", "synthesis"}
+        )
+
+    def test_workspace_retrieval_requires_valid_receipt_and_observable_content_read(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            result = {
+                "id": "example-record",
+                "namespace": "project",
+                "role": "rtl-design",
+                "status": "candidate",
+                "language": "systemverilog",
+                "title": "Example",
+                "summary": "A bounded example.",
+                "content_hash": "a" * 64,
+                "source_uri": "https://example.invalid/repository",
+                "source_revision": "b" * 40,
+                "source_path": "rtl/example.sv",
+                "license_spdx": "Apache-2.0",
+                "license_status": "known",
+                "metadata": {},
+                "verification": {},
+                "excerpt": "module example;",
+                "rank": -1.0,
+            }
+            receipt = build_retrieval_receipt(
+                [result],
+                actor="codex",
+                query="ready valid handshake",
+                namespaces=["project"],
+                limit=3,
+                role=None,
+                status=None,
+                match_mode="all",
+            )
+            write_retrieval_receipt(receipt, workspace / "artifacts" / "retrieval.json")
+            trace = {
+                "commands": [
+                    {
+                        "command": "rtl-ass kb show example-record --include-content",
+                        "status": "completed",
+                        "exit_code": 0,
+                    }
+                ]
+            }
+
+            observation = _workspace_retrieval(workspace, trace)
+
+        self.assertEqual(observation["valid_receipt_count"], 1)
+        self.assertEqual(observation["returned_result_ids"], ["example-record"])
+        self.assertEqual(observation["inspected_result_ids"], ["example-record"])
+        self.assertEqual(observation["uninspected_result_ids"], [])
+
+    def test_workspace_retrieval_rejects_tampered_receipt_and_launcher_read_is_outside_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            workspace = Path(temporary)
+            artifact = workspace / "retrieval.json"
+            artifact.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "kind": "knowledge-retrieval",
+                        "actor": "codex",
+                        "query": "fifo",
+                        "namespaces": ["project"],
+                        "limit": 3,
+                        "filters": {"role": None, "status": None, "match_mode": "all"},
+                        "result_count": 0,
+                        "results": [],
+                        "retrieval_hash": "0" * 64,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            trace = {
+                "commands": [
+                    {
+                        "command": (
+                            "python3 .agents/skills/rtl-ass/scripts/rtl_ass.py "
+                            "kb show unrelated-record --include-content"
+                        ),
+                        "status": "completed",
+                        "exit_code": 0,
+                    }
+                ]
+            }
+
+            observation = _workspace_retrieval(workspace, trace)
+
+        self.assertEqual(observation["valid_receipt_count"], 0)
+        self.assertEqual(observation["receipts"][0]["reason"], "retrieval_hash_mismatch")
+        self.assertEqual(observation["inspected_outside_valid_receipts"], ["unrelated-record"])
+
+    def test_workspace_retrieval_replays_valid_receipt_against_audited_evaluation_database(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            _prepare_workspace(
+                workspace,
+                "on",
+                case=get_case("systemverilog-signed-width"),
+                ablation="retrieval",
+                retrieval_pack=ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
+            )
+            forged = build_retrieval_receipt(
+                [],
+                actor="codex",
+                query="signed width",
+                namespaces=["eval:retrieval"],
+                limit=3,
+                role=None,
+                status=None,
+                match_mode="any",
+            )
+            write_retrieval_receipt(forged, workspace / "retrieval.json")
+
+            observation = _workspace_retrieval(workspace, {"commands": []})
+
+        self.assertEqual(observation["valid_receipt_count"], 0)
+        self.assertEqual(observation["receipts"][0]["reason"], "retrieval_result_mismatch")
+
+    def test_workspace_retrieval_binds_the_prepared_database_bytes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            workspace = root / "workspace"
+            _prepare_workspace(
+                workspace,
+                "on",
+                case=get_case("systemverilog-signed-width"),
+                ablation="retrieval",
+                retrieval_pack=ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
+            )
+            database_path = workspace / ".rtl-ass" / "eval.db"
+            expected_hash = hash_file(database_path)
+            database = KnowledgeDatabase(database_path)
+            results = database.search("signed width", namespaces=["eval:retrieval"], limit=3, match_mode="any")
+            receipt = build_retrieval_receipt(
+                results,
+                actor="codex",
+                query="signed width",
+                namespaces=["eval:retrieval"],
+                limit=3,
+                role=None,
+                status=None,
+                match_mode="any",
+            )
+            write_retrieval_receipt(receipt, workspace / "retrieval.json")
+            database.initialize(actor="no-op")
+            self.assertEqual(hash_file(database_path), expected_hash)
+
+            valid = _workspace_retrieval(
+                workspace,
+                {"commands": []},
+                expected_database_hash=expected_hash,
+            )
+            self.assertTrue(valid["database_integrity"]["unchanged"])
+            self.assertEqual(valid["valid_receipt_count"], 1)
+
+            original_database = database_path.read_bytes()
+            database_path.write_bytes(original_database + b"changed")
+            changed = _workspace_retrieval(
+                workspace,
+                {"commands": []},
+                expected_database_hash=expected_hash,
+            )
+            self.assertFalse(changed["database_integrity"]["unchanged"])
+            self.assertEqual(changed["valid_receipt_count"], 0)
+            self.assertEqual(changed["receipts"][0]["reason"], "retrieval_database_changed")
+
+            database_path.unlink()
+            missing = _workspace_retrieval(
+                workspace,
+                {"commands": []},
+                expected_database_hash=expected_hash,
+            )
+
+        self.assertFalse(missing["database_integrity"]["unchanged"])
+        self.assertEqual(missing["valid_receipt_count"], 0)
+        self.assertEqual(missing["receipts"][0]["reason"], "retrieval_database_changed")
+
+    def test_workflow_efficiency_detects_redundant_evidence_and_post_ready_tools(self) -> None:
+        trace = {
+            "commands": [
+                {
+                    "command": (
+                        "python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify summarize "
+                        "--plan verification-plan.json --require-ready"
+                    ),
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+                {
+                    "command": "rtl-ass verify synth --source rtl/dut.sv --top dut --artifact-dir artifacts/synth",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+            ]
+        }
+        evidence = [
+            {
+                "path": "artifacts/first/run-evidence.json",
+                "strictly_valid": True,
+                "kind": "simulation",
+                "input_hash": "a" * 64,
+            },
+            {
+                "path": "artifacts/second/run-evidence.json",
+                "strictly_valid": True,
+                "kind": "simulation",
+                "input_hash": "a" * 64,
+            },
+        ]
+        efficiency = _workflow_efficiency(trace, evidence)
+        self.assertFalse(efficiency["efficient"])
+        self.assertEqual(efficiency["redundant_evidence_execution_count"], 1)
+        self.assertEqual(efficiency["successful_ready_gate_command_index"], 0)
+        self.assertEqual(efficiency["post_ready_eda_commands"], [{"command_index": 1, "evidence_kinds": ["synthesis"]}])
+
+    def test_unsatisfied_ready_gate_does_not_create_post_ready_findings(self) -> None:
+        trace = {
+            "commands": [
+                {
+                    "command": "rtl-ass verify summarize --plan plan.json --require-ready",
+                    "status": "failed",
+                    "exit_code": 2,
+                },
+                {
+                    "command": "rtl-ass verify simulate --source dut.sv --top dut --artifact-dir artifacts/sim",
+                    "status": "completed",
+                    "exit_code": 0,
+                },
+            ]
+        }
+        efficiency = _workflow_efficiency(trace, [])
+        self.assertTrue(efficiency["efficient"])
+        self.assertIsNone(efficiency["successful_ready_gate_command_index"])
+        self.assertEqual(efficiency["post_ready_eda_commands"], [])
+
     def test_reasoning_effort_axis_covers_current_gpt_5_6_contract(self) -> None:
         self.assertEqual(REASONING_EFFORTS, ("none", "low", "medium", "high", "xhigh", "max"))
 
@@ -55,12 +313,18 @@ class CodexWorkflowTraceTests(unittest.TestCase):
             for name, value in values.items():
                 (root / name).write_text(value, encoding="utf-8")
             stop = mock.Mock()
-            stop.is_set.side_effect = [False, False, True]
+            stop.is_set.side_effect = [False, False, False, True]
             state: dict[str, object] = {}
             telemetry = root / "telemetry.jsonl"
+            memory_events = iter(({"oom": 0}, {}))
+
+            def key_value_file(path: Path) -> dict[str, int]:
+                return next(memory_events) if path.name == "memory.events" else {"usage_usec": 10}
+
             with (
                 mock.patch("evals.run_codex_ab._systemd_control_group", return_value=root),
                 mock.patch("evals.run_codex_ab._host_available_memory", return_value=10_000),
+                mock.patch("evals.run_codex_ab._key_value_file", side_effect=key_value_file),
             ):
                 _monitor_resources(
                     unit="test-unit",
@@ -77,7 +341,9 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                     state=state,
                 )
 
-            self.assertEqual(state["samples"], 1)
+            self.assertEqual(state["samples"], 2)
+            self.assertTrue(state["memory_events_observed"])
+            self.assertEqual(state["last_memory_events"], {"oom": 0})
             self.assertEqual(
                 state["peaks"],
                 {
@@ -87,8 +353,9 @@ class CodexWorkflowTraceTests(unittest.TestCase):
                     "pids_current": 6,
                 },
             )
-            sample = json.loads(telemetry.read_text(encoding="utf-8"))
-            self.assertEqual(sample["memory_peak_bytes"], 75)
+            samples = [json.loads(line) for line in telemetry.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual(samples[0]["memory_peak_bytes"], 75)
+            self.assertEqual(samples[1]["memory_events"], {})
 
     def test_resource_policy_rejects_non_monotonic_memory_thresholds(self) -> None:
         with self.assertRaisesRegex(ValueError, "strictly increasing"):
@@ -529,6 +796,52 @@ class CodexWorkflowTraceTests(unittest.TestCase):
 
 
 class CodexWorkflowFixtureTests(unittest.TestCase):
+    def test_retrieval_ablation_pack_is_bounded_and_distinct_from_case_artifacts(self) -> None:
+        case = get_case("systemverilog-signed-width")
+        result = _validate_retrieval_ablation_pack(
+            ROOT / "evals" / "retrieval_packs" / "signed-width" / "pack.json",
+            case,
+        )
+
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["record_count"], 1)
+        self.assertFalse(result["direct_hash_overlap"])
+        with self.assertRaises(RtlAssError) as caught:
+            _validate_retrieval_ablation_pack(ROOT / "library" / "starter" / "pack.json", case)
+        self.assertEqual(caught.exception.code, "unsafe_retrieval_ablation")
+
+    def test_retrieval_ablation_keeps_skill_constant_and_changes_only_index_population(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            off_workspace = root / "off"
+            on_workspace = root / "on"
+            pack = ROOT / "library" / "starter" / "pack.json"
+
+            _prepare_workspace(off_workspace, "off", ablation="retrieval", retrieval_pack=pack)
+            _prepare_workspace(on_workspace, "on", ablation="retrieval", retrieval_pack=pack)
+
+            for workspace in (off_workspace, on_workspace):
+                self.assertTrue((workspace / ".agents" / "skills" / "rtl-ass" / "SKILL.md").is_file())
+                self.assertTrue((workspace / ".rtl-ass" / "eval.db").is_file())
+            off_results = KnowledgeDatabase(off_workspace / ".rtl-ass" / "eval.db").search(
+                "ready", namespaces=["eval:retrieval"], limit=3
+            )
+            on_results = KnowledgeDatabase(on_workspace / ".rtl-ass" / "eval.db").search(
+                "ready", namespaces=["eval:retrieval"], limit=3
+            )
+
+        self.assertEqual(off_results, [])
+        self.assertGreater(len(on_results), 0)
+
+    def test_retrieval_ablation_requires_pack_and_skill_ablation_rejects_it(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pack = ROOT / "library" / "starter" / "pack.json"
+            with self.assertRaisesRegex(ValueError, "requires exactly one"):
+                _prepare_workspace(root / "missing", "off", ablation="retrieval")
+            with self.assertRaisesRegex(ValueError, "requires exactly one"):
+                _prepare_workspace(root / "unexpected", "off", retrieval_pack=pack)
+
     def test_outer_bwrap_mounts_only_explicit_payloads_and_drops_agent_capabilities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
