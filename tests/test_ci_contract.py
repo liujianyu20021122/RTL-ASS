@@ -19,7 +19,8 @@ class CiContractTests(unittest.TestCase):
         self.assertIn("  formal-drivers-gate:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 60", self.workflow)
 
     def test_opensta_build_binds_the_validated_flex_header_directory(self) -> None:
-        self.assertIn("test -f /usr/include/FlexLexer.h", self.workflow)
+        self.assertIn("libeigen3-dev libfl-dev libtool", self.workflow)
+        self.assertIn("[[ ! -f /usr/include/FlexLexer.h ]]", self.workflow)
         self.assertIn("-DFLEX_INCLUDE_DIR=/usr/include", self.workflow)
 
     def test_formal_python_runtime_is_complete_and_hash_locked(self) -> None:
@@ -27,7 +28,8 @@ class CiContractTests(unittest.TestCase):
         self.assertEqual({line.split("==", 1)[0] for line in requirements}, {"click", "z3-solver"})
         for requirement in requirements:
             self.assertRegex(requirement, r"^[a-z0-9-]+==[^ ]+ --hash=sha256:[0-9a-f]{64}$")
-        self.assertIn("--require-hashes --no-deps --target build/formal-install", self.workflow)
+        self.assertIn("pip install --require-hashes --no-deps -r .github/formal-requirements.txt", self.workflow)
+        self.assertNotIn("--target build/formal-install -r .github/formal-requirements.txt", self.workflow)
 
 
 if __name__ == "__main__":
