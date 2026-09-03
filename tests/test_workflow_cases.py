@@ -163,6 +163,16 @@ class WorkflowCaseTests(unittest.TestCase):
             self.assertGreaterEqual(grade["timing_summary"]["setup_worst_slack"], 0.0)
             self.assertGreaterEqual(grade["timing_summary"]["hold_worst_slack"], 0.0)
             self.assertEqual(grade["timing_summary"]["unconstrained_endpoint_count"], 0)
+            mapped_netlists = list((root / "grade" / "grader-evidence").glob("synthesis-yosys-*/netlist.v"))
+            self.assertEqual(len(mapped_netlists), 1)
+            self.assertEqual(
+                grade["expected_agent_evidence_subjects"]["sta"][0],
+                hash_file(mapped_netlists[0]),
+            )
+            self.assertNotEqual(
+                grade["expected_agent_evidence_subjects"]["sta"][0],
+                hash_file(workspace / "rtl" / "priority_select.v"),
+            )
 
     @unittest.skipUnless(shutil.which("fst2vcd"), "GTKWave FST converter is unavailable")
     def test_waveform_reference_binds_fst_conversion_and_first_divergence(self) -> None:

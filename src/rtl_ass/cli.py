@@ -10,20 +10,22 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from rtl_ass import __version__
+from rtl_ass.compile_manifest import CompileManifest
 from rtl_ass.config import Settings, load_settings
 from rtl_ass.corpus import audit_corpus, write_manifest_atomic
 from rtl_ass.corpus_lock import build_corpus_lock, import_corpus_lock, write_corpus_lock
 from rtl_ass.errors import RtlAssError
 from rtl_ass.evidence import (
-    run_iverilog_simulation,
+    run_equivalence_evidence,
+    run_formal_evidence,
     run_opensta,
+    run_simulation_evidence,
     run_verilator_lint,
-    run_yosys_equivalence,
-    run_yosys_formal,
     run_yosys_synthesis,
 )
-from rtl_ass.integrity import parse_json, read_utf8_exact
+from rtl_ass.integrity import hash_file, parse_json, read_utf8_exact
 from rtl_ass.kb.database import KnowledgeDatabase
+from rtl_ass.kb.gates import validate_run_evidence
 from rtl_ass.kb.ingest import ingest_path
 from rtl_ass.kb.models import LicenseStatus, LinkRelation, ObservationAttribution, RecordRole, RecordStatus
 from rtl_ass.kb.packs import load_knowledge_pack, write_knowledge_pack
@@ -90,6 +92,12 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     inspect.add_argument("--json", action="store_true", help="retained for explicit machine-readable intent")
     inspect.set_defaults(handler=_handle_inspect)
 
+    manifest = commands.add_parser("manifest", help="validate an audited RTL compile manifest")
+    manifest_commands = manifest.add_subparsers(dest="manifest_command", required=True)
+    manifest_validate = manifest_commands.add_parser("validate", help="validate and hash a compile manifest")
+    manifest_validate.add_argument("path")
+    manifest_validate.set_defaults(handler=_handle_manifest_validate)
+
     corpus = commands.add_parser("corpus", help="audit quarantined open-source corpus checkouts")
     corpus_commands = corpus.add_subparsers(dest="corpus_command", required=True)
     corpus_audit = corpus_commands.add_parser("audit", help="build a pinned source and license manifest")
@@ -105,16 +113,18 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
     verify = commands.add_parser("verify", help="run bounded open-source RTL evidence tools")
     verify_commands = verify.add_subparsers(dest="verify_command", required=True)
     lint = verify_commands.add_parser("lint", help="run Verilator lint evidence")
-    _add_verify_arguments(lint)
+    _add_compile_arguments(lint)
     lint.set_defaults(handler=_handle_verify_lint)
-    simulate = verify_commands.add_parser("simulate", help="compile and run with Icarus Verilog")
-    _add_verify_arguments(simulate)
+    simulate = verify_commands.add_parser("simulate", help="compile and run with Icarus Verilog or Verilator")
+    _add_compile_arguments(simulate)
+    simulate.add_argument("--backend", choices=("iverilog", "verilator"), default="iverilog")
     simulate.set_defaults(handler=_handle_verify_simulate)
     synthesize = verify_commands.add_parser("synth", help="run generic Yosys synthesis evidence")
-    _add_verify_arguments(synthesize, default_timeout=120)
+    _add_compile_arguments(synthesize, default_timeout=120)
+    synthesize.add_argument("--liberty", help="map to this exact Liberty library and emit a Verilog netlist")
     synthesize.set_defaults(handler=_handle_verify_synth)
     formal = verify_commands.add_parser("formal", help="run bounded Yosys assertion evidence")
-    _add_verify_arguments(formal, default_timeout=120)
+    _add_compile_arguments(formal, default_timeout=120)
     formal.add_argument("--depth", type=int, default=20, help="bounded time steps (1-1000)")
     formal.add_argument(
         "--initialization",
@@ -122,12 +132,17 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         default="defined",
         help="initial state: arbitrary defined bits or all zero",
     )
+    formal.add_argument("--backend", choices=("yosys", "sby"), default="yosys")
+    formal.add_argument("--solver", choices=("bitwuzla", "boolector", "cvc5", "yices", "z3"), default="z3")
     formal.set_defaults(handler=_handle_verify_formal)
     equivalence = verify_commands.add_parser("equiv", help="run Yosys combinational or bounded equivalence evidence")
-    equivalence.add_argument("--reference-source", action="append", required=True)
-    equivalence.add_argument("--implementation-source", action="append", required=True)
-    equivalence.add_argument("--reference-top", required=True)
-    equivalence.add_argument("--implementation-top", required=True)
+    equivalence.add_argument("--reference-source", action="append")
+    equivalence.add_argument("--implementation-source", action="append")
+    equivalence.add_argument("--reference-top")
+    equivalence.add_argument("--implementation-top")
+    equivalence.add_argument("--reference-manifest")
+    equivalence.add_argument("--implementation-manifest")
+    _add_compile_option_arguments(equivalence)
     equivalence.add_argument(
         "--depth", type=int, default=1, help="1 for combinational; larger values are bounded-sequential"
     )
@@ -137,11 +152,21 @@ def build_parser(settings: Settings | None = None) -> argparse.ArgumentParser:
         default="defined",
         help="prove ordinary defined-bit behavior or also model undefined states",
     )
+    equivalence.add_argument(
+        "--initialization",
+        choices=("none", "zero"),
+        default="none",
+        help="none for combinational checks; zero preserves source init values and defaults other state to zero",
+    )
     equivalence.add_argument("--artifact-dir", required=True)
     equivalence.add_argument("--timeout", type=int, default=120)
+    equivalence.add_argument("--backend", choices=("yosys", "eqy"), default="yosys")
+    equivalence.add_argument("--solver", choices=("bitwuzla", "boolector", "cvc5", "yices", "z3"), default="z3")
     equivalence.set_defaults(handler=_handle_verify_equivalence)
     sta = verify_commands.add_parser("sta", help="run OpenSTA with an exact netlist, Liberty, and SDC")
-    sta.add_argument("--netlist", required=True)
+    sta_input = sta.add_mutually_exclusive_group(required=True)
+    sta_input.add_argument("--netlist")
+    sta_input.add_argument("--synthesis-evidence", help="validated mapped-synthesis evidence containing netlist.v")
     sta.add_argument("--liberty", required=True)
     sta.add_argument("--constraints", required=True)
     sta.add_argument("--top", required=True)
@@ -309,9 +334,19 @@ def _add_database_argument(parser: argparse.ArgumentParser, settings: Settings) 
     parser.add_argument("--db", default=str(settings.database))
 
 
-def _add_verify_arguments(parser: argparse.ArgumentParser, *, default_timeout: int = 60) -> None:
-    parser.add_argument("--source", action="append", required=True)
-    parser.add_argument("--top", required=True)
+def _add_compile_option_arguments(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--language", choices=("systemverilog", "verilog-2005"))
+    parser.add_argument("--include-dir", action="append")
+    parser.add_argument("--library-file", action="append")
+    parser.add_argument("--define", action="append")
+    parser.add_argument("--parameter", action="append")
+
+
+def _add_compile_arguments(parser: argparse.ArgumentParser, *, default_timeout: int = 60) -> None:
+    parser.add_argument("--manifest")
+    parser.add_argument("--source", action="append")
+    parser.add_argument("--top")
+    _add_compile_option_arguments(parser)
     parser.add_argument("--artifact-dir", required=True)
     parser.add_argument("--timeout", type=int, default=default_timeout)
 
@@ -341,6 +376,10 @@ def _handle_inspect(args: argparse.Namespace) -> dict[str, Any]:
     )
 
 
+def _handle_manifest_validate(args: argparse.Namespace) -> dict[str, Any]:
+    return CompileManifest.load(args.path).summary()
+
+
 def _handle_corpus_audit(args: argparse.Namespace) -> dict[str, Any]:
     manifest = audit_corpus(args.path)
     if args.output:
@@ -368,17 +407,16 @@ def _handle_corpus_lock(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_verify_lint(args: argparse.Namespace) -> dict[str, Any]:
     return run_verilator_lint(
-        args.source,
-        top=args.top,
+        _compile_manifest_from_args(args),
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
     )
 
 
 def _handle_verify_simulate(args: argparse.Namespace) -> dict[str, Any]:
-    return run_iverilog_simulation(
-        args.source,
-        top=args.top,
+    return run_simulation_evidence(
+        _compile_manifest_from_args(args),
+        backend=args.backend,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
     )
@@ -386,46 +424,162 @@ def _handle_verify_simulate(args: argparse.Namespace) -> dict[str, Any]:
 
 def _handle_verify_synth(args: argparse.Namespace) -> dict[str, Any]:
     return run_yosys_synthesis(
-        args.source,
-        top=args.top,
+        _compile_manifest_from_args(args),
+        liberty=args.liberty,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
     )
 
 
 def _handle_verify_formal(args: argparse.Namespace) -> dict[str, Any]:
-    return run_yosys_formal(
-        args.source,
-        top=args.top,
+    return run_formal_evidence(
+        _compile_manifest_from_args(args),
+        backend=args.backend,
         depth=args.depth,
         initialization=args.initialization,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
+        solver=args.solver,
     )
 
 
 def _handle_verify_equivalence(args: argparse.Namespace) -> dict[str, Any]:
-    return run_yosys_equivalence(
-        reference_sources=args.reference_source,
-        implementation_sources=args.implementation_source,
-        reference_top=args.reference_top,
-        implementation_top=args.implementation_top,
+    reference, implementation = _equivalence_manifests_from_args(args)
+    return run_equivalence_evidence(
+        reference_sources=reference,
+        implementation_sources=implementation,
+        backend=args.backend,
         depth=args.depth,
         input_domain=args.input_domain,
+        initialization=args.initialization,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
+        solver=args.solver,
+    )
+
+
+def _compile_manifest_from_args(args: argparse.Namespace) -> CompileManifest:
+    inline_values = (
+        args.source,
+        args.top,
+        args.language,
+        args.include_dir,
+        args.library_file,
+        args.define,
+        args.parameter,
+    )
+    if args.manifest:
+        if any(value for value in inline_values):
+            raise RtlAssError(
+                "conflicting_compile_inputs",
+                "--manifest cannot be combined with inline source, top, language, include, library, define, or parameter options",
+            )
+        return CompileManifest.load(args.manifest)
+    if not args.source or not args.top:
+        raise RtlAssError("compile_inputs_required", "provide --manifest or both --source and --top")
+    return CompileManifest.create(
+        args.source,
+        args.top,
+        language=args.language or "systemverilog",
+        include_dirs=args.include_dir or (),
+        library_files=args.library_file or (),
+        defines=args.define or (),
+        parameters=args.parameter or (),
+    )
+
+
+def _equivalence_manifests_from_args(args: argparse.Namespace) -> tuple[CompileManifest, CompileManifest]:
+    manifest_mode = bool(args.reference_manifest or args.implementation_manifest)
+    inline_options = (args.language, args.include_dir, args.library_file, args.define, args.parameter)
+    inline_design = (args.reference_source, args.implementation_source, args.reference_top, args.implementation_top)
+    if manifest_mode:
+        if not args.reference_manifest or not args.implementation_manifest or any(inline_design) or any(inline_options):
+            raise RtlAssError(
+                "conflicting_compile_inputs",
+                "equivalence requires exactly two manifests or complete inline reference/implementation inputs",
+            )
+        return CompileManifest.load(args.reference_manifest), CompileManifest.load(args.implementation_manifest)
+    if not all(inline_design):
+        raise RtlAssError(
+            "compile_inputs_required",
+            "inline equivalence requires reference/implementation sources and tops",
+        )
+    return (
+        CompileManifest.create(
+            args.reference_source,
+            args.reference_top,
+            language=args.language or "systemverilog",
+            include_dirs=args.include_dir or (),
+            library_files=args.library_file or (),
+            defines=args.define or (),
+            parameters=args.parameter or (),
+        ),
+        CompileManifest.create(
+            args.implementation_source,
+            args.implementation_top,
+            language=args.language or "systemverilog",
+            include_dirs=args.include_dir or (),
+            library_files=args.library_file or (),
+            defines=args.define or (),
+            parameters=args.parameter or (),
+        ),
     )
 
 
 def _handle_verify_sta(args: argparse.Namespace) -> dict[str, Any]:
+    netlist = args.netlist
+    if args.synthesis_evidence is not None:
+        netlist = _mapped_netlist_from_evidence(
+            args.synthesis_evidence,
+            liberty=args.liberty,
+            top=args.top,
+        )
     return run_opensta(
-        netlist=args.netlist,
+        netlist=netlist,
         liberty=args.liberty,
         constraints=args.constraints,
         top=args.top,
         artifact_root=args.artifact_dir,
         timeout_seconds=args.timeout,
     )
+
+
+def _mapped_netlist_from_evidence(path: str, *, liberty: str, top: str) -> str:
+    liberty_path = Path(liberty)
+    if not liberty_path.is_file() or liberty_path.is_symlink():
+        raise RtlAssError(
+            "invalid_sta_input",
+            "synthesis-linked STA requires the same regular non-symlink Liberty file",
+            {"path": liberty},
+        )
+    evidence = validate_run_evidence(
+        _load_json_object(path),
+        expected_content_hashes=(hash_file(liberty_path),),
+        require_current_artifacts=True,
+    )
+    compile_summary = evidence["summary"].get("compile_manifest")
+    if (
+        evidence["kind"] != "synthesis"
+        or evidence.get("top") != top
+        or not isinstance(compile_summary, dict)
+        or compile_summary.get("synthesis_mode") != "liberty-mapped"
+    ):
+        raise RtlAssError(
+            "invalid_synthesis_evidence",
+            "STA linkage requires passing Liberty-mapped synthesis evidence for the same top",
+        )
+    netlists = [
+        artifact
+        for artifact in evidence["artifacts"]
+        if isinstance(artifact, str) and Path(artifact).name == "netlist.v"
+    ]
+    if len(netlists) != 1:
+        raise RtlAssError(
+            "invalid_synthesis_evidence",
+            "mapped synthesis evidence must contain exactly one netlist.v artifact",
+            {"count": len(netlists)},
+        )
+    return netlists[0]
 
 
 def _handle_wave_query(args: argparse.Namespace) -> dict[str, Any]:

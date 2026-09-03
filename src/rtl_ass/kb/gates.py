@@ -36,6 +36,29 @@ _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 OBSERVATION_STATUSES = frozenset({"fail", "timeout", "blocked"})
 
 
+def validate_run_evidence(
+    item: Mapping[str, Any],
+    *,
+    expected_content_hashes: Iterable[str] = (),
+    require_current_artifacts: bool = False,
+    allowed_statuses: Iterable[str] = ("pass",),
+) -> dict[str, Any]:
+    """Validate one run-evidence object without creating a knowledge gate."""
+    expected = frozenset(expected_content_hashes)
+    if any(not isinstance(value, str) or not _SHA256.fullmatch(value) for value in expected):
+        raise RtlAssError("invalid_content_hash", "expected evidence subjects must be SHA-256 hashes")
+    statuses = frozenset(allowed_statuses)
+    if not statuses or not statuses.issubset({"pass", "fail", "timeout", "blocked"}):
+        raise RtlAssError("invalid_evidence_status", "allowed evidence statuses are invalid")
+    return _validate_run_evidence(
+        item,
+        expected_content_hashes=expected,
+        index=0,
+        require_current_artifacts=require_current_artifacts,
+        allowed_statuses=statuses,
+    )
+
+
 def normalize_evidence_kinds(kinds: Iterable[str]) -> tuple[str, ...]:
     values = tuple(kinds)
     if any(not isinstance(kind, str) or kind not in EVIDENCE_KINDS for kind in values):
@@ -67,7 +90,7 @@ def build_verification_gate(
     for index, item in enumerate(evidence_items):
         normalized = _validate_run_evidence(
             item,
-            content_hash=content_hash,
+            expected_content_hashes=frozenset({content_hash}),
             index=index,
             require_current_artifacts=require_current_artifacts,
             allowed_statuses=frozenset({"pass"}),
@@ -117,7 +140,7 @@ def build_observation_set(
     for index, item in enumerate(evidence_items):
         normalized = _validate_run_evidence(
             item,
-            content_hash=content_hash,
+            expected_content_hashes=frozenset({content_hash}),
             index=index,
             require_current_artifacts=require_current_artifacts,
             allowed_statuses=OBSERVATION_STATUSES,
@@ -166,7 +189,7 @@ def validate_verification_gate(
 def _validate_run_evidence(
     item: Mapping[str, Any],
     *,
-    content_hash: str,
+    expected_content_hashes: frozenset[str],
     index: int,
     require_current_artifacts: bool,
     allowed_statuses: frozenset[str],
@@ -258,7 +281,7 @@ def _validate_run_evidence(
     _validate_artifacts(item["artifact_hashes"], artifacts, index=index, require_current=require_current_artifacts)
     _validate_subjects(
         item["subject_hashes"],
-        content_hash=content_hash,
+        expected_content_hashes=expected_content_hashes,
         index=index,
         require_current=require_current_artifacts and item["status"] != "blocked",
     )
@@ -340,7 +363,7 @@ def _validate_artifacts(
 def _validate_subjects(
     subjects: Any,
     *,
-    content_hash: str,
+    expected_content_hashes: frozenset[str],
     index: int,
     require_current: bool,
 ) -> None:
@@ -374,11 +397,12 @@ def _validate_subjects(
             )
         subject_content_hashes.add(subject_hash)
         validated_subjects.append((subject_index, subject["path"], subject_hash))
-    if content_hash not in subject_content_hashes:
+    missing_content_hashes = sorted(expected_content_hashes.difference(subject_content_hashes))
+    if missing_content_hashes:
         raise RtlAssError(
             "evidence_input_mismatch",
-            "verification evidence subjects do not include the candidate content",
-            {"index": index, "expected_subject_hash": content_hash},
+            "verification evidence subjects do not include every expected content hash",
+            {"index": index, "missing_subject_hashes": missing_content_hashes},
         )
     if require_current:
         for subject_index, subject_path, subject_hash in validated_subjects:

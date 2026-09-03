@@ -7,4 +7,4 @@ recursive-include evals *.json *.md *.py *.sv *.v *.lib *.sdc *.vcd *.fst
 recursive-include library *.json *.md *.sv
 recursive-include schemas *.json
 recursive-include tests *.py *.sv *.vcd *.v *.sdc *.lib
-include tools/build_release_assets.py tools/release_audit.py
+include tools/__init__.py tools/build_release_assets.py tools/release_audit.py

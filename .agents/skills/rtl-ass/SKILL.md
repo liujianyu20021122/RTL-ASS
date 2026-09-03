@@ -36,12 +36,16 @@ Finish after the lowest-cost evidence set supports the requested claim. Do not a
 
 When formal, equivalence, waveform, or STA is only supplemental, preserve and report its first `fail` or `blocked` result instead of repeatedly rewriting harnesses or constraints. Retry only when the result plausibly exposes a candidate defect and resolving it is necessary for the requested claim. If the user explicitly requests that evidence class, treat it as primary and diagnose it to the agreed budget.
 
-The helper accepts one `--source` option per ordered source file. Use a different artifact directory for each evidence class, for example:
+For a simple check, the helper accepts one `--source` option per ordered source file. When includes, library files, language mode, defines, parameters, or multiple tools matter, create one `compile.json`, validate it with `manifest validate`, and pass it unchanged through `--manifest`. Never rebuild different source flags independently for each backend. Use a different artifact directory for each evidence class, for example:
 
 ```bash
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source rtl/dut.sv --top dut --artifact-dir artifacts/rtl-ass/lint
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --source rtl/dut.sv --source tb/dut_tb.sv --top dut_tb --artifact-dir artifacts/rtl-ass/simulation
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --backend verilator --manifest compile.json --artifact-dir artifacts/rtl-ass/verilator
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source rtl/dut.sv --top dut --artifact-dir artifacts/rtl-ass/synthesis
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source rtl/dut.sv --top dut --liberty lib/cells.lib --artifact-dir artifacts/rtl-ass/mapped-synthesis
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --backend sby --manifest formal.json --depth 20 --initialization defined --solver z3 --artifact-dir artifacts/rtl-ass/sby
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --backend eqy --reference-manifest reference.json --implementation-manifest implementation.json --depth 1 --solver z3 --artifact-dir artifacts/rtl-ass/eqy
 ```
 
 ## Evidence rules
@@ -51,6 +55,8 @@ python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source rtl/dut.
 - A bounded formal or sequential-equivalence run proves only its recorded scope; require a non-empty property/equivalence scope and retain counterexamples.
 - A waveform conclusion must cite a real VCD/FST event window and the first relevant divergence.
 - A synthesis result is not STA. STA requires a netlist, Liberty timing data, constraints, and a real timing-engine run.
+- For timing work, run Liberty-mapped synthesis once and pass its exact `netlist.v`, the same Liberty file, and the SDC to `verify sta`. Do not pass Verilog simulation models of those same cells into mapped synthesis.
+- Prefer `verify sta --synthesis-evidence <mapped-run-evidence.json>` for the final timing run; it validates the synthesis record and selects its unique `netlist.v`, preventing a direct-RTL substitution.
 - Missing tools or inputs produce `not_available` or `not_evaluated`, never an inferred pass.
 - Do not change latency, protocol behavior, clocks, reset semantics, or timing exceptions as an implicit optimization.
 
@@ -61,11 +67,13 @@ Prefer an installed `rtl-ass` command. From this repository, use:
 ```bash
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py doctor
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py inspect <project> --json
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py manifest validate <compile.json>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify lint --source <rtl.sv> --top <top> --artifact-dir <dir>
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --source <rtl.sv> --source <tb.sv> --top <tb-top> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify simulate --backend <iverilog-or-verilator> --source <rtl.sv> --source <tb.sv> --top <tb-top> --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify synth --source <rtl.sv> --top <top> --artifact-dir <dir>
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
-python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --input-domain defined --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify sta --synthesis-evidence <synthesis-run-evidence.json> --liberty <cells.lib> --constraints <design.sdc> --top <top> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify formal --backend <yosys-or-sby> --source <properties.sv> --top <top> --depth <n> --artifact-dir <dir>
+python3 .agents/skills/rtl-ass/scripts/rtl_ass.py verify equiv --backend <yosys-or-eqy> --reference-source <reference.sv> --implementation-source <candidate.sv> --reference-top <reference> --implementation-top <candidate> --input-domain defined --artifact-dir <dir>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py wave query <trace.vcd-or-fst> --signal <glob> --start <time> --end <time> > artifacts/rtl-ass/wave-query.json
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb search <query> --db <index.db> --namespace <name>
 python3 .agents/skills/rtl-ass/scripts/rtl_ass.py kb derive <source-id> --db <index.db> --namespace <name> --actor <actor> --role <role> --language <language> --title <title> --summary <summary> --content-file <file> --source-path <path> --method <method>

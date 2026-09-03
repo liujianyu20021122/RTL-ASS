@@ -5,19 +5,27 @@ from __future__ import annotations
 
 import argparse
 import concurrent.futures
+import contextlib
+import fcntl
 import hashlib
 import json
 import math
 import os
+import shlex
 import shutil
+import signal
 import subprocess
+import threading
 import time
 from collections import Counter
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Iterable, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
+from rtl_ass.errors import RtlAssError
 from rtl_ass.integrity import canonical_json, hash_file
+from rtl_ass.kb.gates import validate_run_evidence
 from rtl_ass.tools import discover_tools
 
 if __package__:
@@ -31,7 +39,75 @@ else:
 ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = ROOT / ".agents" / "skills" / "rtl-ass"
 DEFAULT_CASE_ID = "repair-non-power-of-two-fifo"
+REASONING_EFFORTS = ("none", "low", "medium", "high", "xhigh", "max")
 SOURCE_TREE_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo")
+OPEN_TOOL_COMMANDS = {
+    "gtkwave": ("gtkwave", "fst2vcd"),
+    "iverilog": ("iverilog", "vvp"),
+    "opensta": ("sta", "opensta"),
+    "verilator": ("verilator",),
+    "yosys": ("yosys",),
+}
+SANDBOX_HOME = Path("/opt/rtl-ass-home")
+SANDBOX_CODEX_HOME = SANDBOX_HOME / ".codex"
+NETWORK_EXECUTABLES = frozenset({"curl", "ftp", "nc", "ncat", "scp", "sftp", "ssh", "wget"})
+PROPRIETARY_EXECUTABLES = frozenset(
+    {"dc_shell", "genus", "innovus", "questa", "quartus", "quartus_sh", "vcs", "verdi", "vivado", "vsim", "xrun"}
+)
+NESTED_AGENT_EXECUTABLES = frozenset({"claude", "codex", "gemini", "openai"})
+PACKAGE_EXECUTABLES = frozenset({"apt", "apt-get", "cargo", "npm", "pip", "pip3", "pnpm", "yarn"})
+NETWORK_ERROR_MARKERS = (
+    "connection failed",
+    "error sending request",
+    "failed to lookup address information",
+    "request timed out",
+    "stream disconnected before completion",
+)
+RESOURCE_LOCK = Path(f"/run/user/{os.getuid()}/rtl-ass-codex-ab.lock")
+
+
+@dataclass(frozen=True)
+class ResourcePolicy:
+    memory_high_bytes: int = 2 * 1024**3
+    memory_kill_bytes: int = 3 * 1024**3
+    memory_max_bytes: int = 4 * 1024**3
+    memory_swap_max_bytes: int = 512 * 1024**2
+    host_available_kill_bytes: int = 8 * 1024**3
+    cpu_quota_percent: int = 300
+    tasks_max: int = 384
+    sample_interval_seconds: float = 0.5
+    runtime_grace_seconds: int = 60
+
+    def __post_init__(self) -> None:
+        if not 0 < self.memory_high_bytes < self.memory_kill_bytes < self.memory_max_bytes:
+            raise ValueError("resource memory thresholds must be strictly increasing")
+        if (
+            min(
+                self.memory_swap_max_bytes,
+                self.host_available_kill_bytes,
+                self.cpu_quota_percent,
+                self.tasks_max,
+                self.runtime_grace_seconds,
+            )
+            <= 0
+        ):
+            raise ValueError("resource policy values must be positive")
+
+
+DEFAULT_RESOURCE_POLICY = ResourcePolicy()
+
+
+@dataclass(frozen=True)
+class TransportPolicy:
+    network_stall_seconds: int = 120
+    sample_interval_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.network_stall_seconds <= 0 or self.sample_interval_seconds <= 0:
+            raise ValueError("transport policy values must be positive")
+
+
+DEFAULT_TRANSPORT_POLICY = TransportPolicy()
 AGENT_RULES = """# Evaluation workspace
 
 Repair only the supplied RTL task. Do not access files outside this repository.
@@ -91,7 +167,13 @@ def _subprocess_text(value: str | bytes | None) -> str:
     return ""
 
 
-def _prepare_workspace(workspace: Path, condition: str, case: WorkflowCase | None = None) -> dict[str, str]:
+def _prepare_workspace(
+    workspace: Path,
+    condition: str,
+    case: WorkflowCase | None = None,
+    *,
+    skill_root: Path = SKILL_ROOT,
+) -> dict[str, str]:
     selected_case = case or get_case(DEFAULT_CASE_ID)
     if condition not in {"off", "on"}:
         raise ValueError(f"unknown evaluation condition: {condition}")
@@ -106,12 +188,16 @@ def _prepare_workspace(workspace: Path, condition: str, case: WorkflowCase | Non
     if condition == "on":
         destination = workspace / ".agents" / "skills" / "rtl-ass"
         destination.parent.mkdir(parents=True)
-        shutil.copytree(SKILL_ROOT, destination, ignore=SOURCE_TREE_IGNORE)
-        shutil.copytree(
-            ROOT / "src" / "rtl_ass",
-            workspace / "src" / "rtl_ass",
-            ignore=SOURCE_TREE_IGNORE,
-        )
+        shutil.copytree(skill_root, destination, ignore=SOURCE_TREE_IGNORE)
+        if not (skill_root / "runtime").is_dir():
+            if (workspace / "pyproject.toml").exists():
+                raise RuntimeError("source-tree Skill evaluation would overwrite the fixture pyproject.toml")
+            shutil.copy2(ROOT / "pyproject.toml", workspace / "pyproject.toml")
+            shutil.copytree(
+                ROOT / "src" / "rtl_ass",
+                workspace / "src" / "rtl_ass",
+                ignore=SOURCE_TREE_IGNORE,
+            )
     commands = (
         ["git", "init", "-b", "main"],
         ["git", "config", "user.name", "RTL-ASS Eval"],
@@ -139,6 +225,26 @@ def _redact(text: str, workspace: Path) -> str:
     return result
 
 
+def _redact_value(value: Any, workspace: Path) -> Any:
+    if isinstance(value, str):
+        return _redact(value, workspace)
+    if isinstance(value, list):
+        return [_redact_value(item, workspace) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_value(item, workspace) for key, item in value.items()}
+    return value
+
+
+def _redact_host_value(value: Any) -> Any:
+    if isinstance(value, str):
+        return value.replace(ROOT.as_posix(), "$RTL_ASS_ROOT").replace(Path.home().as_posix(), "$HOME")
+    if isinstance(value, list):
+        return [_redact_host_value(item) for item in value]
+    if isinstance(value, dict):
+        return {key: _redact_host_value(item) for key, item in value.items()}
+    return value
+
+
 def _command_kinds(command: str) -> set[str]:
     lowered = command.lower()
     kinds: set[str] = set()
@@ -161,7 +267,167 @@ def _command_kinds(command: str) -> set[str]:
     return kinds
 
 
-def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
+def _command_segments(command: str) -> list[list[str]]:
+    lexer = shlex.shlex(command, posix=True, punctuation_chars=";&|")
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        return []
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for token in tokens:
+        if token and set(token).issubset({";", "&", "|"}):
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(token)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _expanded_command_segments(command: str) -> list[list[str]]:
+    segments = _command_segments(command)
+    for segment in tuple(segments):
+        if not segment or Path(segment[0]).name not in {"bash", "dash", "sh", "zsh"}:
+            continue
+        for index, argument in enumerate(segment[1:-1], start=1):
+            if argument.startswith("-") and "c" in argument[1:]:
+                segments.extend(_command_segments(segment[index + 1]))
+                break
+    return segments
+
+
+def _skill_command_signals(command: str, *, matching_skill: bool) -> set[str]:
+    if not matching_skill:
+        return set()
+    signals: set[str] = set()
+    readers = {"awk", "bat", "cat", "grep", "head", "less", "more", "nl", "rg", "sed", "tail"}
+    segments = _expanded_command_segments(command)
+    for segment in segments:
+        if not segment:
+            continue
+        executable = Path(segment[0]).name
+        arguments = segment[1:]
+        direct_helper = segment[0].endswith("/.agents/skills/rtl-ass/scripts/rtl_ass.py") or segment[0] == (
+            ".agents/skills/rtl-ass/scripts/rtl_ass.py"
+        )
+        python_helper = executable in {"python", "python3"} and any(
+            argument.endswith("/.agents/skills/rtl-ass/scripts/rtl_ass.py")
+            or argument == ".agents/skills/rtl-ass/scripts/rtl_ass.py"
+            for argument in arguments
+        )
+        if direct_helper or python_helper:
+            signals.add("helper-command")
+        if executable in readers and any(
+            argument.endswith("/.agents/skills/rtl-ass/SKILL.md")
+            or argument == ".agents/skills/rtl-ass/SKILL.md"
+            or "/.agents/skills/rtl-ass/references/" in argument
+            or argument.startswith(".agents/skills/rtl-ass/references/")
+            for argument in arguments
+        ):
+            signals.add("skill-file-read")
+    return signals
+
+
+def _command_policy_findings(command: str) -> list[dict[str, str]]:
+    findings: list[dict[str, str]] = []
+    for segment in _expanded_command_segments(command):
+        if not segment:
+            continue
+        executable = Path(segment[0]).name.lower()
+        arguments = [argument.lower() for argument in segment[1:]]
+        reason: str | None = None
+        if executable in NETWORK_EXECUTABLES or (
+            executable == "git"
+            and (
+                any(argument in {"clone", "fetch", "pull", "ls-remote"} for argument in arguments[:2])
+                or arguments[:2] == ["submodule", "update"]
+            )
+        ):
+            reason = "network-command"
+        elif executable in PACKAGE_EXECUTABLES and any(
+            argument in {"add", "i", "install", "update", "upgrade"} for argument in arguments[:3]
+        ):
+            reason = "package-network-command"
+        elif executable in PROPRIETARY_EXECUTABLES:
+            reason = "proprietary-tool-command"
+        elif (executable in NESTED_AGENT_EXECUTABLES and not _is_nonexecuting_cli_probe(arguments)) or (
+            executable in {"python", "python3"}
+            and arguments[:2] in (["-m", "openai"], ["-m", "codex"])
+            and not _is_nonexecuting_cli_probe(arguments[2:])
+        ):
+            reason = "nested-agent-command"
+        elif (
+            executable in {"python", "python3"}
+            and arguments[:2] in (["-m", "pip"], ["-m", "ensurepip"])
+            and any(argument in {"install", "uninstall", "update", "upgrade"} for argument in arguments[2:5])
+        ):
+            reason = "package-network-command"
+        if reason is not None:
+            findings.append({"reason": reason, "executable": executable})
+    return findings
+
+
+def _is_nonexecuting_cli_probe(arguments: list[str]) -> bool:
+    return any(argument in {"--help", "-h"} for argument in arguments) or arguments in (["--version"], ["version"])
+
+
+def _workflow_audit(
+    trace: Mapping[str, Any], case: WorkflowCase, condition: str, grade: Mapping[str, Any]
+) -> dict[str, Any]:
+    violations: list[dict[str, Any]] = []
+    commands = trace.get("commands", [])
+    if isinstance(commands, list):
+        for index, item in enumerate(commands):
+            if not isinstance(item, dict) or not isinstance(item.get("command"), str):
+                continue
+            for finding in _command_policy_findings(item["command"]):
+                violations.append({"command_index": index, **finding})
+    skill_signals = trace.get("skill_signals", [])
+    if condition == "off" and skill_signals:
+        violations.append({"reason": "skill-visible-in-off-condition"})
+    protected = grade.get("protected_files_unchanged")
+    if protected is False:
+        violations.append({"reason": "protected-fixture-changed"})
+    if trace.get("invalid_jsonl_lines"):
+        violations.append({"reason": "invalid-trace-jsonl"})
+    executed = {value for value in trace.get("executed_evidence_kinds", []) if isinstance(value, str)}
+    extra_evidence = sorted(executed - case.allowed_evidence)
+    return {
+        "policy_version": "1.0",
+        "condition": condition,
+        "skill_activated": bool(skill_signals),
+        "allowed_evidence": sorted(case.allowed_evidence),
+        "required_evidence": sorted(case.required_evidence),
+        "executed_evidence_outside_case_policy": extra_evidence,
+        "violations": violations,
+        "compliant": not violations and not extra_evidence,
+        "monitoring_boundary": (
+            "observable Codex command/file-change events plus independent workspace grading; "
+            "opaque behavior inside generated programs is not inferred"
+        ),
+    }
+
+
+def _network_error_message(event: Mapping[str, Any]) -> str | None:
+    message: Any = None
+    if event.get("type") == "error":
+        message = event.get("message")
+    elif event.get("type") == "item.completed":
+        item = event.get("item")
+        if isinstance(item, dict) and item.get("type") == "error":
+            message = item.get("message")
+    if not isinstance(message, str):
+        return None
+    lowered = message.lower()
+    return message if any(marker in lowered for marker in NETWORK_ERROR_MARKERS) else None
+
+
+def _parse_trace(path: Path, workspace: Path, skill_root: Path = SKILL_ROOT) -> dict[str, Any]:
     event_counts: Counter[str] = Counter()
     item_counts: Counter[str] = Counter()
     commands: list[dict[str, Any]] = []
@@ -173,11 +439,13 @@ def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
     skill_signals: set[str] = set()
     workspace_skill = workspace / ".agents" / "skills" / "rtl-ass"
     matching_skill = all(
-        candidate.is_file() and not candidate.is_symlink() and hash_file(candidate) == hash_file(SKILL_ROOT / relative)
+        candidate.is_file() and not candidate.is_symlink() and hash_file(candidate) == hash_file(skill_root / relative)
         for relative in ("SKILL.md", "scripts/rtl_ass.py")
         for candidate in (workspace_skill / relative,)
     )
     invalid_lines = 0
+    network_error_count = 0
+    terminal_network_error = False
     for line in path.read_text(encoding="utf-8").splitlines():
         try:
             event = json.loads(line)
@@ -187,6 +455,11 @@ def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
         event_type = event.get("type")
         if isinstance(event_type, str):
             event_counts[event_type] += 1
+        if _network_error_message(event) is not None:
+            network_error_count += 1
+            terminal_network_error = True
+        elif event_type != "error":
+            terminal_network_error = False
         if event_type == "thread.started" and isinstance(event.get("thread_id"), str):
             thread_ids.append(hashlib.sha256(event["thread_id"].encode()).hexdigest())
         if event_type == "turn.completed" and isinstance(event.get("usage"), dict):
@@ -230,17 +503,14 @@ def _parse_trace(path: Path, workspace: Path) -> dict[str, Any]:
         command_succeeded = item.get("status") == "completed" and exit_code == 0
         if command_succeeded:
             executed_kinds.update(_command_kinds(command))
-            if matching_skill and ".agents/skills/rtl-ass/scripts/rtl_ass.py" in command:
-                skill_signals.add("helper-command")
-            if matching_skill and (
-                ".agents/skills/rtl-ass/SKILL.md" in command or ".agents/skills/rtl-ass/references" in command
-            ):
-                skill_signals.add("skill-file-read")
+            skill_signals.update(_skill_command_signals(command, matching_skill=matching_skill))
     return {
         "event_counts": dict(sorted(event_counts.items())),
         "item_counts": dict(sorted(item_counts.items())),
         "reasoning_content_retained": False,
         "invalid_jsonl_lines": invalid_lines,
+        "network_error_count": network_error_count,
+        "terminal_network_error": terminal_network_error,
         "thread_id_hashes": thread_ids,
         "commands": commands,
         "file_changes": file_changes,
@@ -268,6 +538,14 @@ def _workspace_evidence(workspace: Path) -> list[dict[str, Any]]:
         except (json.JSONDecodeError, UnicodeDecodeError):
             records.append({"path": path.relative_to(workspace).as_posix(), "valid_json": False})
             continue
+        validation_error: str | None = None
+        if isinstance(value, dict):
+            try:
+                _validate_workspace_run_evidence(value, workspace)
+            except RtlAssError as exc:
+                validation_error = exc.code
+        else:
+            validation_error = "invalid_evidence"
         raw_subjects = value.get("subject_hashes") if isinstance(value, dict) else None
         subjects = []
         if isinstance(raw_subjects, list):
@@ -286,6 +564,8 @@ def _workspace_evidence(workspace: Path) -> list[dict[str, Any]]:
             {
                 "path": path.relative_to(workspace).as_posix(),
                 "valid_json": isinstance(value, dict),
+                "strictly_valid": validation_error is None,
+                "reason": validation_error,
                 "kind": value.get("kind") if isinstance(value, dict) else None,
                 "status": value.get("status") if isinstance(value, dict) else None,
                 "input_hash": value.get("input_hash") if isinstance(value, dict) else None,
@@ -310,10 +590,20 @@ def _workspace_evidence(workspace: Path) -> list[dict[str, Any]]:
         }:
             continue
         waveform_hash = value.get("waveform_hash")
+        waveform_path = value.get("waveform")
+        waveform_valid = (
+            isinstance(waveform_path, str)
+            and isinstance(waveform_hash, str)
+            and len(waveform_hash) == 64
+            and _workspace_file_matches(workspace, waveform_path, waveform_hash)
+            and _valid_waveform_result(value)
+        )
         records.append(
             {
                 "path": path.relative_to(workspace).as_posix(),
                 "valid_json": True,
+                "strictly_valid": waveform_valid,
+                "reason": None if waveform_valid else "invalid_waveform_evidence",
                 "kind": "waveform",
                 "status": "pass" if value.get("status") in {"complete", "found"} else value.get("status"),
                 "input_hash": waveform_hash,
@@ -329,13 +619,106 @@ def _workspace_evidence(workspace: Path) -> list[dict[str, Any]]:
     return records
 
 
+def _validate_workspace_run_evidence(value: Mapping[str, Any], workspace: Path) -> None:
+    validate_run_evidence(value)
+    _require_workspace_evidence_paths(value, workspace)
+    hashed_paths = [
+        item
+        for field in ("subject_hashes", "artifact_hashes")
+        for item in value.get(field, [])
+        if isinstance(item, dict)
+    ]
+    for item in hashed_paths:
+        path_value = item.get("path")
+        content_hash = item.get("content_hash")
+        if (
+            not isinstance(path_value, str)
+            or not isinstance(content_hash, str)
+            or not _workspace_file_matches(workspace, path_value, content_hash)
+        ):
+            raise RtlAssError("evidence_content_changed", "evaluation evidence content is missing or stale")
+    evidence_file = value.get("evidence_file")
+    if not isinstance(evidence_file, str):
+        raise RtlAssError("invalid_evidence_path", "evidence file path must be a string")
+    path = Path(evidence_file)
+    if not path.is_absolute():
+        path = workspace / path
+    try:
+        stored = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RtlAssError("evidence_file_invalid", "run-evidence JSON is unavailable or invalid") from exc
+    if stored != value:
+        raise RtlAssError("evidence_file_changed", "run-evidence JSON no longer matches its record")
+
+
+def _workspace_file_matches(workspace: Path, path_value: str, expected_hash: str) -> bool:
+    path = Path(path_value)
+    if not path.is_absolute():
+        path = workspace / path
+    try:
+        resolved = path.resolve(strict=True)
+        resolved.relative_to(workspace.resolve())
+    except (FileNotFoundError, OSError, ValueError):
+        return False
+    return resolved.is_file() and not path.is_symlink() and hash_file(resolved) == expected_hash
+
+
+def _require_workspace_evidence_paths(value: Mapping[str, Any], workspace: Path) -> None:
+    path_values = [value.get("evidence_file")]
+    path_values.extend(value.get("artifacts", []))
+    path_values.extend(subject.get("path") for subject in value.get("subject_hashes", []) if isinstance(subject, dict))
+    for path_value in path_values:
+        if not isinstance(path_value, str):
+            raise RtlAssError("invalid_evidence_path", "evidence path must be a string")
+        path = Path(path_value)
+        if not path.is_absolute():
+            path = workspace / path
+        try:
+            path.resolve(strict=True).relative_to(workspace.resolve())
+        except (FileNotFoundError, OSError, ValueError) as exc:
+            raise RtlAssError("evidence_path_escape", "evaluation evidence must remain inside the workspace") from exc
+        if path.is_symlink():
+            raise RtlAssError("evidence_symlink", "evaluation evidence paths cannot be symlinks")
+
+
+def _valid_waveform_result(value: Mapping[str, Any]) -> bool:
+    kind = value.get("kind")
+    status = value.get("status")
+    waveform_hash = value.get("waveform_hash")
+    window = value.get("window")
+    if (
+        value.get("schema_version") != "1.0"
+        or kind
+        not in {
+            "vcd-query",
+            "fst-query",
+            "vcd-first-divergence",
+            "fst-first-divergence",
+        }
+        or not isinstance(value.get("waveform"), str)
+        or not isinstance(waveform_hash, str)
+        or len(waveform_hash) != 64
+        or not isinstance(value.get("timescale"), str)
+        or not isinstance(window, dict)
+        or set(window) != {"start", "end"}
+        or isinstance(window.get("start"), bool)
+        or not isinstance(window.get("start"), int)
+        or window["start"] < 0
+        or not (window.get("end") is None or isinstance(window.get("end"), int))
+    ):
+        return False
+    if kind in {"vcd-query", "fst-query"}:
+        return status == "complete" and isinstance(value.get("events"), list)
+    return status == "found" and isinstance(value.get("first_divergence"), dict)
+
+
 def _current_passed_evidence_kinds(
     records: Iterable[dict[str, Any]], *, expected_subjects: Mapping[str, Iterable[str | None]]
 ) -> list[str]:
     kinds: set[str] = set()
     for record in records:
         kind = record.get("kind")
-        if record.get("status") != "pass" or not isinstance(kind, str):
+        if not record.get("strictly_valid") or record.get("status") != "pass" or not isinstance(kind, str):
             continue
         subject_hashes = {
             subject.get("content_hash")
@@ -368,83 +751,667 @@ def _codex_version(executable: str) -> str:
     return result.stdout.strip()
 
 
+def _disabled_host_skill_paths(codex_home: Path) -> list[Path]:
+    paths = [SKILL_ROOT / "SKILL.md"]
+    user_skills = codex_home / "skills"
+    if user_skills.is_dir():
+        paths.extend(
+            path
+            for path in user_skills.glob("*/SKILL.md")
+            if path.parent.name != ".system" and path.is_file() and not path.is_symlink()
+        )
+    plugin_cache = codex_home / "plugins" / "cache"
+    if plugin_cache.is_dir():
+        paths.extend(path for path in plugin_cache.rglob("SKILL.md") if path.is_file() and not path.is_symlink())
+    return sorted({path.resolve() for path in paths})
+
+
+def _skills_config_override(paths: Iterable[Path]) -> str:
+    entries = ",".join(f"{{path={json.dumps(path.as_posix())},enabled=false}}" for path in paths)
+    return f"skills.config=[{entries}]"
+
+
+def _codex_package(executable: str) -> tuple[Path, Path]:
+    resolved = shutil.which(executable)
+    if resolved is None:
+        raise RuntimeError(f"cannot locate Codex executable: {executable}")
+    launcher = Path(resolved).resolve()
+    package = launcher.parent.parent
+    package_json = package / "package.json"
+    if not package_json.is_file():
+        raise RuntimeError("outer bwrap requires the npm-distributed Codex executable")
+    candidates = sorted(package.glob("node_modules/@openai/codex-*/vendor/*/bin/codex"))
+    native = [path for path in candidates if path.is_file() and os.access(path, os.X_OK)]
+    if len(native) != 1:
+        raise RuntimeError("outer bwrap could not resolve exactly one native Codex executable")
+    return package, native[0].relative_to(package)
+
+
+def _parent_directory_args(path: Path) -> list[str]:
+    result: list[str] = []
+    current = Path(path.anchor)
+    for part in path.parts[1:]:
+        current /= part
+        result.extend(("--dir", current.as_posix()))
+    return result
+
+
+def _open_tool_prefixes() -> dict[str, Path]:
+    """Resolve non-system open-tool prefixes from the evaluator's PATH."""
+    prefixes: dict[str, Path] = {}
+    for name, commands in OPEN_TOOL_COMMANDS.items():
+        executable = next((resolved for command in commands if (resolved := shutil.which(command)) is not None), None)
+        if executable is None:
+            continue
+        executable_path = Path(executable).resolve()
+        if not executable_path.is_file() or not os.access(executable_path, os.X_OK):
+            continue
+        prefix = executable_path.parent.parent if executable_path.parent.name == "bin" else executable_path.parent
+        if prefix == Path("/usr"):
+            # /usr is already mounted read-only in the sandbox and its bin
+            # directory is already present in the fixed sandbox PATH.
+            continue
+        if prefix == Path("/") or not prefix.is_dir():
+            raise RuntimeError(f"cannot derive a bounded installation prefix for open tool: {name}")
+        prefixes[name] = prefix
+    return prefixes
+
+
+def _outer_bwrap_command(
+    *,
+    executable: str,
+    workspace: Path,
+    codex_home: Path,
+    temporary_directory: Path,
+    model: str,
+    effort: str,
+    prompt: str,
+) -> tuple[list[str], list[dict[str, str]]]:
+    if (
+        not temporary_directory.is_dir()
+        or temporary_directory.is_symlink()
+        or temporary_directory.parent.resolve() != workspace.parent.resolve()
+    ):
+        raise RuntimeError("outer bwrap temporary directory must be a real run-local directory")
+    agent_uid = os.getuid()
+    agent_gid = os.getgid()
+    if agent_uid == 0 or agent_gid == 0:
+        raise RuntimeError("outer bwrap must be launched by an unprivileged user before sudo supervision")
+    package, native_relative = _codex_package(executable)
+    available_tools = _open_tool_prefixes()
+    path_entries = [f"/opt/rtl-tools/{name}/bin" for name in sorted(available_tools)]
+    command = [
+        "bwrap",
+        "--die-with-parent",
+        "--new-session",
+        "--unshare-pid",
+        "--unshare-ipc",
+        "--unshare-uts",
+        "--unshare-cgroup-try",
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind",
+        "/bin",
+        "/bin",
+        "--ro-bind",
+        "/lib",
+        "/lib",
+        "--ro-bind",
+        "/lib64",
+        "/lib64",
+        "--ro-bind",
+        "/etc",
+        "/etc",
+        "--dir",
+        "/run",
+        "--dir",
+        "/run/systemd",
+        "--dir",
+        "/run/systemd/resolve",
+        "--ro-bind",
+        "/run/systemd/resolve/stub-resolv.conf",
+        "/run/systemd/resolve/stub-resolv.conf",
+        "--ro-bind",
+        "/sys",
+        "/sys",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--dir",
+        "/tmp",
+        "--bind",
+        temporary_directory.as_posix(),
+        "/tmp",
+        "--dir",
+        "/opt",
+        "--dir",
+        "/opt/codex",
+        "--ro-bind",
+        package.as_posix(),
+        "/opt/codex",
+        *_parent_directory_args(workspace.parent),
+        "--bind",
+        workspace.as_posix(),
+        workspace.as_posix(),
+        "--dir",
+        SANDBOX_CODEX_HOME.as_posix(),
+        "--bind",
+        codex_home.as_posix(),
+        SANDBOX_CODEX_HOME.as_posix(),
+        "--dir",
+        "/opt/rtl-tools",
+    ]
+    mounts = [
+        {"source": package.as_posix(), "target": "/opt/codex", "mode": "read-only"},
+        {
+            "source": "/run/systemd/resolve/stub-resolv.conf",
+            "target": "/run/systemd/resolve/stub-resolv.conf",
+            "mode": "read-only",
+        },
+        {"source": workspace.as_posix(), "target": workspace.as_posix(), "mode": "read-write"},
+        {"source": codex_home.as_posix(), "target": SANDBOX_CODEX_HOME.as_posix(), "mode": "read-write"},
+        {"source": temporary_directory.as_posix(), "target": "/tmp", "mode": "read-write"},
+    ]
+    for name, source in sorted(available_tools.items()):
+        target = f"/opt/rtl-tools/{name}"
+        command.extend(("--dir", target, "--ro-bind", source.as_posix(), target))
+        mounts.append({"source": source.as_posix(), "target": target, "mode": "read-only"})
+    command.extend(
+        (
+            "--setenv",
+            "HOME",
+            SANDBOX_HOME.as_posix(),
+            "--setenv",
+            "CODEX_HOME",
+            SANDBOX_CODEX_HOME.as_posix(),
+            "--setenv",
+            "TMPDIR",
+            "/tmp",
+            "--setenv",
+            "PATH",
+            ":".join((*path_entries, "/usr/local/bin", "/usr/bin", "/bin")),
+            "/usr/bin/setpriv",
+            f"--reuid={agent_uid}",
+            f"--regid={agent_gid}",
+            "--clear-groups",
+            "--bounding-set=-all",
+            "--inh-caps=-all",
+            "--ambient-caps=-all",
+            f"/opt/codex/{native_relative.as_posix()}",
+            "exec",
+            "--ephemeral",
+            "--json",
+            "--ignore-user-config",
+            "--disable",
+            "plugins",
+            "--disable",
+            "remote_plugin",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--model",
+            model,
+            "-c",
+            f'model_reasoning_effort="{effort}"',
+            "-C",
+            workspace.as_posix(),
+            prompt,
+        )
+    )
+    return command, mounts
+
+
+def _resource_unit_name(output: Path, run_id: str) -> str:
+    identity = hashlib.sha256(output.as_posix().encode()).hexdigest()[:10]
+    return f"rtl-ass-eval-{identity}-{run_id}"
+
+
+def _resource_command(command: list[str], unit: str, policy: ResourcePolicy, *, timeout: int) -> list[str]:
+    return [
+        "sudo",
+        "-n",
+        "systemd-run",
+        "--wait",
+        "--collect",
+        "--pipe",
+        "--quiet",
+        f"--unit={unit}",
+        "--property=MemoryAccounting=yes",
+        f"--property=MemoryHigh={policy.memory_high_bytes}",
+        f"--property=MemoryMax={policy.memory_max_bytes}",
+        f"--property=MemorySwapMax={policy.memory_swap_max_bytes}",
+        "--property=OOMPolicy=kill",
+        "--property=CPUAccounting=yes",
+        f"--property=CPUQuota={policy.cpu_quota_percent}%",
+        "--property=TasksAccounting=yes",
+        f"--property=TasksMax={policy.tasks_max}",
+        "--property=KillMode=control-group",
+        f"--property=RuntimeMaxSec={timeout + policy.runtime_grace_seconds}",
+        "--",
+        *command,
+    ]
+
+
+@contextlib.contextmanager
+def _resource_lock() -> Iterator[float]:
+    started = time.monotonic()
+    with RESOURCE_LOCK.open("a+", encoding="utf-8") as handle:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+        try:
+            yield round(time.monotonic() - started, 3)
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def _systemd_control_group(unit: str) -> Path | None:
+    result = subprocess.run(
+        [
+            "sudo",
+            "-n",
+            "systemctl",
+            "show",
+            f"{unit}.service",
+            "--property=ControlGroup",
+            "--value",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    value = result.stdout.strip()
+    if result.returncode != 0 or not value.startswith("/"):
+        return None
+    path = Path("/sys/fs/cgroup") / value.lstrip("/")
+    return path if path.is_dir() else None
+
+
+def _integer_file(path: Path) -> int | None:
+    try:
+        return int(path.read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, OSError, ValueError):
+        return None
+
+
+def _key_value_file(path: Path) -> dict[str, int]:
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, OSError):
+        return {}
+    result: dict[str, int] = {}
+    for line in lines:
+        fields = line.split()
+        if len(fields) == 2 and fields[1].isdigit():
+            result[fields[0]] = int(fields[1])
+    return result
+
+
+def _host_available_memory() -> int | None:
+    try:
+        lines = Path("/proc/meminfo").read_text(encoding="utf-8").splitlines()
+    except (FileNotFoundError, OSError):
+        return None
+    for line in lines:
+        fields = line.split()
+        if len(fields) >= 2 and fields[0] == "MemAvailable:" and fields[1].isdigit():
+            return int(fields[1]) * 1024
+    return None
+
+
+def _kill_resource_unit(unit: str) -> None:
+    subprocess.run(
+        [
+            "sudo",
+            "-n",
+            "systemctl",
+            "kill",
+            "--kill-whom=all",
+            "--signal=SIGKILL",
+            f"{unit}.service",
+        ],
+        check=False,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=10,
+    )
+
+
+def _resource_preflight(policy: ResourcePolicy) -> dict[str, Any]:
+    missing = [name for name in ("bwrap", "sudo", "systemctl", "systemd-run") if shutil.which(name) is None]
+    if missing:
+        raise RuntimeError(f"resource-supervised outer isolation requires commands: {', '.join(missing)}")
+    sudo = subprocess.run(
+        ["sudo", "-n", "true"], check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10
+    )
+    if sudo.returncode != 0:
+        raise RuntimeError("resource-supervised outer isolation requires non-interactive sudo")
+    resolver = Path("/run/systemd/resolve/stub-resolv.conf")
+    if not resolver.is_file():
+        raise RuntimeError("outer isolation requires the systemd-resolved stub file")
+    controllers_path = Path("/sys/fs/cgroup/cgroup.controllers")
+    controllers = set(controllers_path.read_text(encoding="utf-8").split()) if controllers_path.is_file() else set()
+    required_controllers = {"cpu", "memory", "pids"}
+    if not required_controllers.issubset(controllers):
+        raise RuntimeError("resource-supervised outer isolation requires cgroup v2 cpu, memory, and pids controllers")
+    available = _host_available_memory()
+    required_available = policy.host_available_kill_bytes + policy.memory_max_bytes
+    if available is None or available < required_available:
+        raise RuntimeError(
+            f"host available memory is below the audited start floor ({required_available} bytes required)"
+        )
+    if not RESOURCE_LOCK.parent.is_dir():
+        raise RuntimeError(f"resource lock directory is unavailable: {RESOURCE_LOCK.parent}")
+    return {
+        "cgroup_version": 2,
+        "controllers": sorted(controllers),
+        "host_available_memory_bytes": available,
+        "required_start_available_memory_bytes": required_available,
+        "global_lock": RESOURCE_LOCK.as_posix(),
+    }
+
+
+def _monitor_resources(
+    *,
+    unit: str,
+    policy: ResourcePolicy,
+    telemetry_path: Path,
+    stop: threading.Event,
+    state: dict[str, Any],
+) -> None:
+    control_group: Path | None = None
+    discovery_deadline = time.monotonic() + 10
+    while not stop.is_set() and time.monotonic() < discovery_deadline:
+        control_group = _systemd_control_group(unit)
+        if control_group is not None:
+            break
+        stop.wait(0.1)
+    state["control_group_observed"] = control_group is not None
+    if control_group is None:
+        return
+    started = time.monotonic()
+    peaks = {"memory_current": 0, "memory_peak": 0, "memory_swap_current": 0, "pids_current": 0}
+    sample_count = 0
+    with telemetry_path.open("w", encoding="utf-8") as output:
+        while not stop.is_set():
+            memory_current = _integer_file(control_group / "memory.current")
+            memory_peak = _integer_file(control_group / "memory.peak")
+            swap_current = _integer_file(control_group / "memory.swap.current")
+            pids_current = _integer_file(control_group / "pids.current")
+            host_available = _host_available_memory()
+            sample = {
+                "elapsed_seconds": round(time.monotonic() - started, 3),
+                "memory_current_bytes": memory_current,
+                "memory_peak_bytes": memory_peak,
+                "memory_swap_current_bytes": swap_current,
+                "pids_current": pids_current,
+                "cpu": _key_value_file(control_group / "cpu.stat"),
+                "memory_events": _key_value_file(control_group / "memory.events"),
+                "host_available_memory_bytes": host_available,
+            }
+            state["last_memory_events"] = sample["memory_events"]
+            output.write(json.dumps(sample, sort_keys=True) + "\n")
+            output.flush()
+            sample_count += 1
+            for key, value in (
+                ("memory_current", memory_current),
+                ("memory_peak", memory_peak),
+                ("memory_swap_current", swap_current),
+                ("pids_current", pids_current),
+            ):
+                if value is not None:
+                    peaks[key] = max(peaks[key], value)
+            reason: str | None = None
+            if memory_current is not None and memory_current >= policy.memory_kill_bytes:
+                reason = "cgroup-memory-kill-threshold"
+            elif host_available is not None and host_available <= policy.host_available_kill_bytes:
+                reason = "host-available-memory-floor"
+            if reason is not None:
+                state["termination_reason"] = reason
+                _kill_resource_unit(unit)
+                break
+            stop.wait(policy.sample_interval_seconds)
+    state["samples"] = sample_count
+    state["peaks"] = {f"{key}_bytes" if key != "pids_current" else key: value for key, value in peaks.items()}
+
+
+def _monitor_transport(
+    *,
+    unit: str,
+    trace_path: Path,
+    policy: TransportPolicy,
+    stop: threading.Event,
+    state: dict[str, Any],
+) -> None:
+    started = time.monotonic()
+    network_error_started: float | None = None
+    state["monitor_started"] = True
+    with trace_path.open("r", encoding="utf-8") as trace:
+        while not stop.is_set():
+            line = trace.readline()
+            if line:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                event_type = event.get("type")
+                is_network_error = _network_error_message(event) is not None
+                if is_network_error:
+                    state["network_error_count"] = int(state.get("network_error_count", 0)) + 1
+                    if network_error_started is None:
+                        network_error_started = time.monotonic()
+                        state["network_error_started_seconds"] = round(network_error_started - started, 3)
+                elif event_type != "error":
+                    network_error_started = None
+                    state["last_progress_seconds"] = round(time.monotonic() - started, 3)
+                continue
+            if (
+                network_error_started is not None
+                and time.monotonic() - network_error_started >= policy.network_stall_seconds
+            ):
+                state["termination_reason"] = "network-stall"
+                _kill_resource_unit(unit)
+                break
+            stop.wait(policy.sample_interval_seconds)
+    state["monitor_thread_stopped"] = True
+
+
+def _network_infrastructure_failure(trace: Mapping[str, Any], *, return_code: int, timed_out: bool) -> bool:
+    return bool(trace.get("terminal_network_error")) and (return_code != 0 or timed_out)
+
+
 def _run_one(
     *,
     executable: str,
     model: str,
     effort: str,
     sandbox: str,
+    sandbox_network: bool,
+    outer_bwrap: bool,
     timeout: int,
     output: Path,
     replicate: int,
     condition: str,
     case: WorkflowCase,
+    skill_root: Path,
 ) -> dict[str, Any]:
     run_id = f"pair-{replicate:02d}-{condition}"
     run_root = output / "runs" / run_id
     workspace = run_root / "workspace"
     run_root.mkdir(parents=True)
-    initial = _prepare_workspace(workspace, condition, case)
+    initial = _prepare_workspace(workspace, condition, case, skill_root=skill_root)
     trace_path = run_root / "trace.raw.jsonl"
     stderr_path = run_root / "codex.stderr.txt"
-    command = [
-        executable,
-        "exec",
-        "--ephemeral",
-        "--json",
-        "--ignore-user-config",
-        "--sandbox",
-        sandbox,
-        "--model",
-        model,
-        "-c",
-        f'model_reasoning_effort="{effort}"',
-        "-C",
-        str(workspace),
-        case.prompt,
-    ]
     environment = os.environ.copy()
-    original_codex_home = Path(environment.get("CODEX_HOME", Path.home() / ".codex"))
-    isolated_codex_home = run_root / "codex-home"
-    isolated_codex_home.mkdir()
+    original_codex_home = Path(environment.get("CODEX_HOME", Path.home() / ".codex")).resolve()
     auth_source = original_codex_home / "auth.json"
-    if auth_source.is_file():
-        shutil.copy2(auth_source, isolated_codex_home / "auth.json")
-    elif "CODEX_API_KEY" not in environment:
-        isolated_codex_home.rmdir()
-        raise RuntimeError("Codex authentication is unavailable for the isolated evaluation home")
-    environment["CODEX_HOME"] = str(isolated_codex_home)
+    if not auth_source.is_file() and "CODEX_API_KEY" not in environment:
+        raise RuntimeError("Codex authentication is unavailable for the evaluation")
+    disabled_skills: list[Path] = []
+    outer_mounts: list[dict[str, str]] = []
+    codex_home: Path | None = None
+    if outer_bwrap:
+        if not auth_source.is_file():
+            raise RuntimeError("outer bwrap requires auth.json in CODEX_HOME")
+        codex_home = run_root / "codex-home"
+        codex_home.mkdir()
+        temporary_directory = run_root / "tmp"
+        temporary_directory.mkdir(mode=0o700)
+        shutil.copy2(auth_source, codex_home / "auth.json")
+        command, outer_mounts = _outer_bwrap_command(
+            executable=executable,
+            workspace=workspace,
+            codex_home=codex_home,
+            temporary_directory=temporary_directory,
+            model=model,
+            effort=effort,
+            prompt=case.prompt,
+        )
+    else:
+        disabled_skills = _disabled_host_skill_paths(original_codex_home)
+        command = [
+            executable,
+            "exec",
+            "--ephemeral",
+            "--json",
+            "--ignore-user-config",
+            "--disable",
+            "plugins",
+            "--disable",
+            "remote_plugin",
+            "--sandbox",
+            sandbox,
+            "--model",
+            model,
+            "-c",
+            f'model_reasoning_effort="{effort}"',
+            "-c",
+            _skills_config_override(disabled_skills),
+            *(["-c", "sandbox_workspace_write.network_access=true"] if sandbox_network else []),
+            "-C",
+            str(workspace),
+            case.prompt,
+        ]
     environment.pop("PYTHONPATH", None)
     started_at = datetime.now(UTC).isoformat()
     started_monotonic = time.monotonic()
     timed_out = False
-    try:
-        completed = subprocess.run(
-            command,
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            env=environment,
-        )
-        return_code = completed.returncode
-        stdout = completed.stdout
-        stderr = completed.stderr
-    except subprocess.TimeoutExpired as exc:
-        timed_out = True
-        return_code = 124
-        stdout = _subprocess_text(exc.stdout)
-        stderr = _subprocess_text(exc.stderr)
-    finally:
-        shutil.rmtree(isolated_codex_home)
+    stderr_raw_path = run_root / "codex.stderr.raw.txt"
+    telemetry_path = run_root / "resource-telemetry.jsonl"
+    resource_policy = DEFAULT_RESOURCE_POLICY if outer_bwrap else None
+    transport_policy = DEFAULT_TRANSPORT_POLICY if outer_bwrap else None
+    resource_unit = _resource_unit_name(output, run_id) if resource_policy is not None else None
+    execution_command = (
+        _resource_command(command, resource_unit, resource_policy, timeout=timeout)
+        if resource_policy is not None and resource_unit is not None
+        else command
+    )
+    resource_state: dict[str, Any] = {}
+    transport_state: dict[str, Any] = {}
+    resource_stop = threading.Event()
+    resource_thread: threading.Thread | None = None
+    transport_thread: threading.Thread | None = None
+    lock_context = _resource_lock() if resource_policy is not None else contextlib.nullcontext(0.0)
+    with lock_context as lock_wait_seconds:
+        with (
+            trace_path.open("w", encoding="utf-8") as trace_output,
+            stderr_raw_path.open("w", encoding="utf-8") as stderr_output,
+        ):
+            process = subprocess.Popen(
+                execution_command,
+                stdout=trace_output,
+                stderr=stderr_output,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                env=environment,
+                start_new_session=True,
+            )
+            if resource_policy is not None and resource_unit is not None:
+                resource_thread = threading.Thread(
+                    target=_monitor_resources,
+                    kwargs={
+                        "unit": resource_unit,
+                        "policy": resource_policy,
+                        "telemetry_path": telemetry_path,
+                        "stop": resource_stop,
+                        "state": resource_state,
+                    },
+                    name=f"resource-monitor-{run_id}",
+                    daemon=True,
+                )
+                resource_thread.start()
+                if transport_policy is not None:
+                    transport_thread = threading.Thread(
+                        target=_monitor_transport,
+                        kwargs={
+                            "unit": resource_unit,
+                            "trace_path": trace_path,
+                            "policy": transport_policy,
+                            "stop": resource_stop,
+                            "state": transport_state,
+                        },
+                        name=f"transport-monitor-{run_id}",
+                        daemon=True,
+                    )
+                    transport_thread.start()
+            try:
+                process.wait(timeout=timeout)
+                return_code = process.returncode
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                return_code = 124
+                if resource_unit is not None:
+                    _kill_resource_unit(resource_unit)
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                with contextlib.suppress(subprocess.TimeoutExpired):
+                    process.wait(timeout=30)
+            except BaseException:
+                if resource_unit is not None:
+                    _kill_resource_unit(resource_unit)
+                with contextlib.suppress(ProcessLookupError):
+                    os.killpg(process.pid, signal.SIGKILL)
+                raise
+            finally:
+                resource_stop.set()
+                if resource_thread is not None:
+                    resource_thread.join(timeout=5)
+                    resource_state["monitor_thread_stopped"] = not resource_thread.is_alive()
+                if transport_thread is not None:
+                    transport_thread.join(timeout=5)
+                    transport_state["monitor_thread_stopped"] = not transport_thread.is_alive()
     finished_at = datetime.now(UTC).isoformat()
     duration_seconds = round(time.monotonic() - started_monotonic, 3)
-    trace_path.write_text(stdout, encoding="utf-8")
+    stderr = stderr_raw_path.read_text(encoding="utf-8", errors="replace")
     stderr_path.write_text(_redact(stderr, workspace), encoding="utf-8")
-    trace = _parse_trace(trace_path, workspace)
+    stderr_raw_path.unlink()
+    trace = _parse_trace(trace_path, workspace, skill_root)
     observable_text = "\n".join(trace["agent_messages"]) + "\n" + stderr
-    infrastructure_failure = any(
-        marker in observable_text for marker in ("Failed RTM_NEWADDR", "sandbox failure", "execution sandbox", "bwrap:")
+    memory_events = resource_state.get("last_memory_events", {})
+    resource_monitor_failure = resource_policy is not None and (
+        not resource_state.get("control_group_observed")
+        or not resource_state.get("samples")
+        or not resource_state.get("monitor_thread_stopped")
+    )
+    resource_limit_hit = bool(resource_state.get("termination_reason")) or (
+        isinstance(memory_events, dict)
+        and any(int(memory_events.get(key, 0)) > 0 for key in ("max", "oom", "oom_kill", "oom_group_kill"))
+    )
+    transport_monitor_failure = transport_policy is not None and (
+        not transport_state.get("monitor_started") or not transport_state.get("monitor_thread_stopped")
+    )
+    transport_failure = bool(transport_state.get("termination_reason")) or _network_infrastructure_failure(
+        trace, return_code=return_code, timed_out=timed_out
+    )
+    infrastructure_failure = (
+        resource_monitor_failure
+        or resource_limit_hit
+        or transport_monitor_failure
+        or transport_failure
+        or (return_code != 0 and not timed_out)
+        or any(
+            marker in observable_text
+            for marker in ("Failed RTM_NEWADDR", "sandbox failure", "execution sandbox", "bwrap:")
+        )
     )
     agent_evidence = _workspace_evidence(workspace)
     grade = _grade(workspace, run_root, initial, case)
@@ -454,6 +1421,7 @@ def _run_one(
         if isinstance(expected_subjects, dict)
         else []
     )
+    workflow_audit = _workflow_audit(trace, case, condition, grade)
     result = {
         "schema_version": "1.0",
         "run_id": run_id,
@@ -466,17 +1434,46 @@ def _run_one(
         "codex_return_code": return_code,
         "timed_out": timed_out,
         "infrastructure_failure": infrastructure_failure,
+        "resource_limit_hit": resource_limit_hit,
+        "resource_monitor_failure": resource_monitor_failure,
+        "transport_failure": transport_failure,
+        "transport_monitor_failure": transport_monitor_failure,
+        "resource_supervision": (
+            {
+                "unit": resource_unit,
+                "global_lock_wait_seconds": lock_wait_seconds,
+                "policy": asdict(resource_policy),
+                "telemetry": resource_state,
+                "telemetry_file": telemetry_path.name if telemetry_path.is_file() else None,
+                "telemetry_file_hash": hash_file(telemetry_path) if telemetry_path.is_file() else None,
+            }
+            if resource_policy is not None
+            else None
+        ),
+        "transport_supervision": (
+            {"policy": asdict(transport_policy), "telemetry": transport_state} if transport_policy is not None else None
+        ),
+        "disabled_host_skills": [_redact(path.as_posix(), workspace) for path in disabled_skills],
+        "outer_bwrap": outer_bwrap,
+        "outer_mounts": _redact_value(outer_mounts, workspace),
         "initial": initial,
+        "trace_file_hash": hash_file(trace_path),
+        "stderr_file_hash": hash_file(stderr_path),
         "trace": trace,
         "agent_evidence": agent_evidence,
         "agent_evidence_kinds": sorted(
             {item["kind"] for item in agent_evidence if item.get("valid_json") and isinstance(item.get("kind"), str)}
         ),
         "current_passed_evidence_kinds": current_passed_evidence_kinds,
-        "grade": grade,
+        "workflow_audit": workflow_audit,
+        "grade": _redact_value(grade, workspace),
     }
     result["deliverable_complete"] = bool(grade.get("complete", grade.get("correct")))
-    result["task_success"] = not timed_out and return_code == 0 and result["deliverable_complete"]
+    result["task_success"] = (
+        not infrastructure_failure and not timed_out and return_code == 0 and result["deliverable_complete"]
+    )
+    if codex_home is not None:
+        shutil.rmtree(codex_home)
     (run_root / "result.sanitized.json").write_text(
         json.dumps(result, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8"
     )
@@ -505,8 +1502,11 @@ def _paired_summary(
         )
         valid = len(valid_items)
         observed_skill = sum(bool(item["trace"]["skill_signals"]) for item in valid_items)
+        workflow_compliant = sum(bool(item.get("workflow_audit", {}).get("compliant", True)) for item in valid_items)
         complete_commands = sum(required.issubset(item["trace"]["executed_evidence_kinds"]) for item in valid_items)
         structured_evidence = sum(required.issubset(item["current_passed_evidence_kinds"]) for item in valid_items)
+        input_usage = [item["trace"]["usage"].get("input_tokens") for item in valid_items]
+        output_usage = [item["trace"]["usage"].get("output_tokens") for item in valid_items]
         conditions[condition] = {
             "runs": len(selected),
             "valid_runs": valid,
@@ -521,11 +1521,17 @@ def _paired_summary(
             "deliverable_complete_wilson_95": _wilson_interval(deliverable_complete, valid),
             "timeouts": sum(bool(item["timed_out"]) for item in valid_items),
             "observed_skill_use": observed_skill,
+            "workflow_compliant_runs": workflow_compliant,
+            "workflow_violation_runs": valid - workflow_compliant,
             "complete_evidence_commands": complete_commands,
             "complete_structured_evidence": structured_evidence,
             "structured_evidence_wilson_95": _wilson_interval(structured_evidence, valid),
-            "input_tokens": sum(int(item["trace"]["usage"].get("input_tokens", 0)) for item in valid_items),
-            "output_tokens": sum(int(item["trace"]["usage"].get("output_tokens", 0)) for item in valid_items),
+            "usage_complete_runs": sum(
+                isinstance(input_value, int) and isinstance(output_value, int)
+                for input_value, output_value in zip(input_usage, output_usage, strict=True)
+            ),
+            "input_tokens": (sum(input_usage) if all(isinstance(value, int) for value in input_usage) else None),
+            "output_tokens": (sum(output_usage) if all(isinstance(value, int) for value in output_usage) else None),
             "duration_seconds": round(sum(float(item["duration_seconds"]) for item in valid_items), 3),
         }
     paired = []
@@ -574,22 +1580,51 @@ def _wilson_interval(successes: int, total: int, z: float = 1.959963984540054) -
     return [round(max(0.0, center - margin), 6), round(min(1.0, center + margin), 6)]
 
 
+def _print_run_result(result: Mapping[str, Any]) -> None:
+    print(
+        json.dumps(
+            {
+                "run_id": result["run_id"],
+                "return_code": result["codex_return_code"],
+                "task_success": result["task_success"],
+                "candidate_correct": result["grade"].get("correct", False),
+                "deliverable_complete": result["deliverable_complete"],
+                "workflow_compliant": result["workflow_audit"]["compliant"],
+                "resource_limit_hit": result["resource_limit_hit"],
+                "transport_failure": result["transport_failure"],
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+
+
 def main(arguments: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--replicates", type=int, default=5)
-    parser.add_argument("--parallel", type=int, default=2)
+    parser.add_argument("--parallel", type=int, default=1)
     parser.add_argument("--timeout", type=int, default=900)
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--model", default="gpt-5.6-sol")
-    parser.add_argument("--effort", choices=("low", "medium", "high", "xhigh"), default="high")
-    parser.add_argument("--case", choices=sorted(CASES), default=DEFAULT_CASE_ID)
+    parser.add_argument("--effort", choices=REASONING_EFFORTS, default="high")
     parser.add_argument(
-        "--sandbox",
-        choices=("workspace-write", "danger-full-access"),
-        default="workspace-write",
-        help="use danger-full-access only inside an externally isolated evaluation environment",
+        "--sandbox-network",
+        action="store_true",
+        help="allow command network access when the host cannot initialize Codex's isolated loopback namespace",
     )
+    parser.add_argument(
+        "--outer-bwrap",
+        action="store_true",
+        help="run Codex without its inner sandbox inside a root-created, capability-dropped bwrap boundary",
+    )
+    parser.add_argument(
+        "--skill-root",
+        type=Path,
+        default=SKILL_ROOT,
+        help="Skill payload copied into the on condition; use an extracted release archive for release claims",
+    )
+    parser.add_argument("--case", choices=sorted(CASES), default=DEFAULT_CASE_ID)
     args = parser.parse_args(arguments)
     if not 1 <= args.replicates <= 20 or not 1 <= args.parallel <= 4 or not 60 <= args.timeout <= 3600:
         raise SystemExit("replicates, parallelism, or timeout is outside the audited range")
@@ -597,6 +1632,15 @@ def main(arguments: list[str] | None = None) -> int:
     if output.exists():
         raise SystemExit(f"refusing to reuse output directory: {output}")
     output.mkdir(parents=True)
+    skill_root = args.skill_root.resolve()
+    required_skill_files = (skill_root / "SKILL.md", skill_root / "scripts" / "rtl_ass.py")
+    if not skill_root.is_dir() or not all(path.is_file() and not path.is_symlink() for path in required_skill_files):
+        raise SystemExit("skill root is missing a regular SKILL.md or scripts/rtl_ass.py")
+    if args.outer_bwrap and args.sandbox_network:
+        raise SystemExit("--sandbox-network only configures Codex's inner workspace-write sandbox")
+    if args.outer_bwrap and args.parallel != 1:
+        raise SystemExit("resource-supervised --outer-bwrap requires --parallel 1")
+    resource_preflight = _resource_preflight(DEFAULT_RESOURCE_POLICY) if args.outer_bwrap else None
     codex_version = _codex_version(args.codex)
     case = get_case(args.case)
     jobs: list[tuple[int, str]] = [
@@ -605,38 +1649,54 @@ def main(arguments: list[str] | None = None) -> int:
         for condition in (("off", "on") if replicate % 2 else ("on", "off"))
     ]
     results: list[dict[str, Any]] = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
-        futures = [
-            executor.submit(
-                _run_one,
-                executable=args.codex,
-                model=args.model,
-                effort=args.effort,
-                sandbox=args.sandbox,
-                timeout=args.timeout,
-                output=output,
-                replicate=replicate,
-                condition=condition,
-                case=case,
-            )
-            for replicate, condition in jobs
-        ]
-        for future in concurrent.futures.as_completed(futures):
-            result = future.result()
+    run_arguments = [
+        {
+            "executable": args.codex,
+            "model": args.model,
+            "effort": args.effort,
+            "sandbox": "workspace-write",
+            "sandbox_network": args.sandbox_network,
+            "outer_bwrap": args.outer_bwrap,
+            "timeout": args.timeout,
+            "output": output,
+            "replicate": replicate,
+            "condition": condition,
+            "case": case,
+            "skill_root": skill_root,
+        }
+        for replicate, condition in jobs
+    ]
+    if args.parallel == 1:
+        for run_argument in run_arguments:
+            result = _run_one(**run_argument)
             results.append(result)
-            print(
-                json.dumps(
-                    {
-                        "run_id": result["run_id"],
-                        "return_code": result["codex_return_code"],
-                        "task_success": result["task_success"],
-                        "candidate_correct": result["grade"].get("correct", False),
-                        "deliverable_complete": result["deliverable_complete"],
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
-            )
+            _print_run_result(result)
+            if args.outer_bwrap and result["infrastructure_failure"]:
+                print(
+                    json.dumps(
+                        {
+                            "campaign_aborted": True,
+                            "reason": "infrastructure_failure",
+                            "run_id": result["run_id"],
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+                return 2
+    else:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=args.parallel) as executor:
+            futures = [
+                executor.submit(
+                    _run_one,
+                    **run_argument,
+                )
+                for run_argument in run_arguments
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                results.append(result)
+                _print_run_result(result)
     results.sort(key=lambda item: (item["replicate"], item["condition"]))
     report = {
         "schema_version": "1.0",
@@ -647,19 +1707,52 @@ def main(arguments: list[str] | None = None) -> int:
         "fixture_hash": _hash_tree(case.public_fixture),
         "hidden_grader_hash": _hash_tree(case.public_fixture.parent / "private"),
         "harness_hash": _hash_files((Path(__file__).resolve(), ROOT / "evals" / "workflow_cases.py")),
-        "skill_hash": _hash_tree(SKILL_ROOT),
-        "runtime_hash": _hash_tree(ROOT / "src" / "rtl_ass"),
+        "skill_hash": _hash_tree(skill_root),
+        "runtime_hash": _hash_tree(
+            skill_root / "runtime" if (skill_root / "runtime").is_dir() else ROOT / "src" / "rtl_ass"
+        ),
+        "skill_delivery": "embedded-release" if (skill_root / "runtime").is_dir() else "source-tree",
         "codex_version": codex_version,
         "model": args.model,
         "reasoning_effort": args.effort,
-        "sandbox": args.sandbox,
+        "sandbox": "outer-bwrap+inner-danger-full-access" if args.outer_bwrap else "workspace-write",
+        "sandbox_network_access": args.sandbox_network or args.outer_bwrap,
+        "outer_bwrap": args.outer_bwrap,
+        "resource_supervision": (
+            {"policy": asdict(DEFAULT_RESOURCE_POLICY), "preflight": resource_preflight} if args.outer_bwrap else None
+        ),
+        "transport_supervision": ({"policy": asdict(DEFAULT_TRANSPORT_POLICY)} if args.outer_bwrap else None),
+        "outer_isolation": (
+            {
+                "host_uid_before_drop": 0,
+                "agent_uid": os.getuid(),
+                "agent_gid": os.getgid(),
+                "capability_bounding_set": "empty",
+                "pid_namespace": "isolated",
+                "network_namespace": "shared",
+                "workspace_mount": "read-write",
+                "codex_package_and_open_tool_mounts": "read-only",
+                "host_repository_mounted": False,
+                "private_grader_mounted": False,
+            }
+            if args.outer_bwrap
+            else None
+        ),
         "replicates": args.replicates,
         "required_evidence": sorted(case.required_evidence),
-        "tool_discovery": discover_tools(),
+        "allowed_evidence": sorted(case.allowed_evidence),
+        "tool_discovery": _redact_host_value(discover_tools()),
         "trace_policy": {
             "raw_jsonl_local_only": True,
             "reasoning_content_retained_in_sanitized_results": False,
             "observable_items": ["agent_message", "command_execution", "file_change", "usage"],
+            "workflow_command_findings": [
+                "network-command",
+                "package-network-command",
+                "proprietary-tool-command",
+                "nested-agent-command",
+            ],
+            "opaque_generated_program_behavior_inferred": False,
         },
         "summary": _paired_summary(results, case.required_evidence),
         "runs": results,

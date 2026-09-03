@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the representative RTL-ASS 1.1 open-tool and knowledge release audit."""
+"""Run the representative RTL-ASS 1.2 open-tool and knowledge release audit."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from rtl_ass.evidence import (
     run_iverilog_simulation,
     run_opensta,
     run_verilator_lint,
+    run_verilator_simulation,
     run_yosys_equivalence,
     run_yosys_formal,
     run_yosys_synthesis,
@@ -26,7 +27,7 @@ from rtl_ass.tools import discover_tools
 from rtl_ass.waveform import first_divergence_waveform, query_waveform
 
 ROOT = Path(__file__).resolve().parents[1]
-RELEASE_VERSION = "1.1.0"
+RELEASE_VERSION = "1.2.0"
 
 
 def _expect(result: dict[str, Any], expected: str, label: str) -> dict[str, Any]:
@@ -55,10 +56,29 @@ def run_audit(output: Path) -> dict[str, Any]:
         "pass",
         "simulation",
     )
+    checks["verilator_simulation"] = _expect(
+        run_verilator_simulation(
+            [fixtures / "counter.sv", fixtures / "counter_tb.sv"],
+            top="counter_tb",
+            artifact_root=evidence_root,
+        ),
+        "pass",
+        "Verilator simulation",
+    )
     checks["synthesis"] = _expect(
         run_yosys_synthesis([rtl], top="ready_valid_register", artifact_root=evidence_root),
         "pass",
         "synthesis",
+    )
+    checks["mapped_synthesis"] = _expect(
+        run_yosys_synthesis(
+            [sta_fixtures / "sta_netlist.v"],
+            top="sta_top",
+            liberty=sta_fixtures / "sta.lib",
+            artifact_root=evidence_root,
+        ),
+        "pass",
+        "mapped synthesis",
     )
     checks["formal_pass"] = _expect(
         run_yosys_formal(
@@ -116,6 +136,20 @@ def run_audit(output: Path) -> dict[str, Any]:
         ),
         "pass",
         "STA",
+    )
+    mapped_netlists = [Path(path) for path in checks["mapped_synthesis"]["artifacts"] if Path(path).name == "netlist.v"]
+    if len(mapped_netlists) != 1:
+        raise RuntimeError("mapped synthesis did not produce exactly one Verilog netlist")
+    checks["mapped_sta"] = _expect(
+        run_opensta(
+            netlist=mapped_netlists[0],
+            liberty=sta_fixtures / "sta.lib",
+            constraints=sta_fixtures / "sta.sdc",
+            top="sta_top",
+            artifact_root=evidence_root,
+        ),
+        "pass",
+        "mapped STA",
     )
 
     waveform = fixtures / "divergence.vcd"

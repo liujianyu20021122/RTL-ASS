@@ -15,6 +15,53 @@ from rtl_ass.kb.schema import SCHEMA_VERSION
 
 
 class CliTests(unittest.TestCase):
+    def test_manifest_validation_and_inline_conflict_are_structured(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "top.sv"
+            source.write_text("module top; endmodule\n", encoding="utf-8")
+            manifest = root / "compile.json"
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "1.0",
+                        "top": "top",
+                        "language": "systemverilog",
+                        "sources": ["top.sv"],
+                        "library_files": [],
+                        "include_dirs": [],
+                        "defines": {},
+                        "parameters": {},
+                    }
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(["manifest", "validate", str(manifest)])
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                conflict_status = main(
+                    [
+                        "verify",
+                        "lint",
+                        "--manifest",
+                        str(manifest),
+                        "--source",
+                        str(source),
+                        "--artifact-dir",
+                        str(root / "artifacts"),
+                    ]
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["top"], "top")
+        self.assertEqual(len(payload["input_hash"]), 64)
+        self.assertEqual(conflict_status, 2)
+        self.assertEqual(json.loads(error.getvalue())["error"]["code"], "conflicting_compile_inputs")
+
     def test_operating_system_failure_is_a_structured_error(self) -> None:
         error = io.StringIO()
         with mock.patch("rtl_ass.cli.discover_tools", side_effect=PermissionError(13, "denied")):
@@ -22,6 +69,33 @@ class CliTests(unittest.TestCase):
                 status = main(["doctor"])
         self.assertEqual(status, 2)
         self.assertEqual(json.loads(error.getvalue())["error"]["code"], "io_error")
+
+    @unittest.skipUnless(shutil.which("verilator"), "Verilator is unavailable")
+    def test_verilator_simulation_backend_is_routed_by_cli(self) -> None:
+        fixtures = Path(__file__).parent / "fixtures"
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(
+                    [
+                        "verify",
+                        "simulate",
+                        "--backend",
+                        "verilator",
+                        "--source",
+                        str(fixtures / "counter.sv"),
+                        "--source",
+                        str(fixtures / "counter_tb.sv"),
+                        "--top",
+                        "counter_tb",
+                        "--artifact-dir",
+                        directory,
+                    ]
+                )
+        payload = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["status"], "pass", payload["summary"])
+        self.assertEqual(payload["tool"]["name"], "verilator-binary")
 
     @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
     def test_formal_and_equivalence_cli_emit_machine_readable_evidence(self) -> None:
@@ -65,6 +139,134 @@ class CliTests(unittest.TestCase):
         self.assertEqual(equivalence_status, 0)
         self.assertEqual(json.loads(formal_output.getvalue())["status"], "pass")
         self.assertEqual(json.loads(equivalence_output.getvalue())["status"], "pass")
+
+    @unittest.skipUnless(shutil.which("yosys"), "Yosys is unavailable")
+    def test_mapped_synthesis_cli_binds_liberty_and_emits_netlist(self) -> None:
+        fixtures = Path(__file__).parent / "fixtures"
+        with tempfile.TemporaryDirectory() as directory:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                status = main(
+                    [
+                        "verify",
+                        "synth",
+                        "--source",
+                        str(fixtures / "mapped_logic.sv"),
+                        "--top",
+                        "mapped_logic",
+                        "--liberty",
+                        str(fixtures / "mapped_cells.lib"),
+                        "--artifact-dir",
+                        directory,
+                    ]
+                )
+
+        payload = json.loads(output.getvalue())
+        self.assertEqual(status, 0)
+        self.assertEqual(payload["status"], "pass", payload["summary"])
+        self.assertEqual(payload["summary"]["compile_manifest"]["synthesis_mode"], "liberty-mapped")
+        self.assertIn("netlist.v", {Path(path).name for path in payload["artifacts"]})
+
+    @unittest.skipUnless(
+        shutil.which("yosys") and (shutil.which("sta") or shutil.which("opensta")),
+        "Yosys and OpenSTA are required",
+    )
+    def test_sta_cli_links_exact_current_mapped_synthesis_artifact(self) -> None:
+        fixtures = Path(__file__).parent / "sta_fixtures"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            synthesis_output = io.StringIO()
+            with contextlib.redirect_stdout(synthesis_output):
+                synthesis_status = main(
+                    [
+                        "verify",
+                        "synth",
+                        "--source",
+                        str(fixtures / "sta_netlist.v"),
+                        "--top",
+                        "sta_top",
+                        "--liberty",
+                        str(fixtures / "sta.lib"),
+                        "--artifact-dir",
+                        str(root / "synthesis"),
+                    ]
+                )
+            synthesis = json.loads(synthesis_output.getvalue())
+            sta_output = io.StringIO()
+            with contextlib.redirect_stdout(sta_output):
+                sta_status = main(
+                    [
+                        "verify",
+                        "sta",
+                        "--synthesis-evidence",
+                        synthesis["evidence_file"],
+                        "--liberty",
+                        str(fixtures / "sta.lib"),
+                        "--constraints",
+                        str(fixtures / "sta.sdc"),
+                        "--top",
+                        "sta_top",
+                        "--artifact-dir",
+                        str(root / "sta"),
+                    ]
+                )
+            sta = json.loads(sta_output.getvalue())
+            mapped_netlist = next(Path(path) for path in synthesis["artifacts"] if Path(path).name == "netlist.v")
+            mapped_hash = next(
+                item["content_hash"] for item in synthesis["artifact_hashes"] if Path(item["path"]).name == "netlist.v"
+            )
+
+            self.assertEqual(synthesis_status, 0)
+            self.assertEqual(sta_status, 0)
+            self.assertEqual(sta["status"], "pass", sta["summary"])
+            self.assertEqual(sta["subject_hashes"][0]["content_hash"], mapped_hash)
+
+            mapped_netlist.write_text(mapped_netlist.read_text(encoding="utf-8") + "\n", encoding="utf-8")
+            error = io.StringIO()
+            with contextlib.redirect_stderr(error):
+                tampered_status = main(
+                    [
+                        "verify",
+                        "sta",
+                        "--synthesis-evidence",
+                        synthesis["evidence_file"],
+                        "--liberty",
+                        str(fixtures / "sta.lib"),
+                        "--constraints",
+                        str(fixtures / "sta.sdc"),
+                        "--top",
+                        "sta_top",
+                        "--artifact-dir",
+                        str(root / "tampered-sta"),
+                    ]
+                )
+            self.assertEqual(tampered_status, 2)
+            self.assertEqual(json.loads(error.getvalue())["error"]["code"], "evidence_artifact_changed")
+
+    def test_sequential_equivalence_cli_requires_explicit_initialization(self) -> None:
+        fixtures = Path(__file__).parent / "fixtures"
+        error = io.StringIO()
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stderr(error):
+            status = main(
+                [
+                    "verify",
+                    "equiv",
+                    "--reference-source",
+                    str(fixtures / "equiv_sequential_reference.sv"),
+                    "--implementation-source",
+                    str(fixtures / "equiv_sequential_implementation.sv"),
+                    "--reference-top",
+                    "equiv_sequential_reference",
+                    "--implementation-top",
+                    "equiv_sequential_implementation",
+                    "--depth",
+                    "4",
+                    "--artifact-dir",
+                    directory,
+                ]
+            )
+        self.assertEqual(status, 2)
+        self.assertEqual(json.loads(error.getvalue())["error"]["code"], "invalid_equivalence_initialization")
 
     def test_kb_init_emits_json_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -14,7 +13,7 @@ from rtl_ass.evidence_common import (
     base_evidence,
     input_stable_status,
     run_directory,
-    timeout_text,
+    run_tool_command,
     tool_version,
     unavailable_evidence,
     validate_timeout,
@@ -84,25 +83,20 @@ def run_opensta(
     script_path.write_text(script, encoding="utf-8")
     command = [executable, "-no_splash", "-exit", str(script_path)]
     started_at = utc_now()
-    try:
-        result = subprocess.run(
-            command,
-            check=False,
-            cwd=current_run,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout_seconds,
-        )
-        stdout = result.stdout
-        stderr = result.stderr
-        status = "pass" if result.returncode == 0 else "fail"
-        summary: dict[str, Any] = {"returncode": result.returncode, "input_roles": list(bundle.roles)}
-    except subprocess.TimeoutExpired as exc:
-        stdout = timeout_text(exc.stdout)
-        stderr = timeout_text(exc.stderr)
+    result = run_tool_command(command, timeout_seconds=timeout_seconds, cwd=current_run)
+    summary: dict[str, Any] = {"input_roles": list(bundle.roles)}
+    if result.outcome == "timeout":
         status = "timeout"
-        summary = {"timeout_seconds": timeout_seconds, "input_roles": list(bundle.roles)}
+        summary["timeout_seconds"] = timeout_seconds
+    elif result.outcome == "launch_failed":
+        status = "blocked"
+        summary.update({"launch_failed": True, "launch_error": result.error_type})
+    else:
+        returncode = result.completed_returncode()
+        status = "pass" if returncode == 0 else "fail"
+        summary["returncode"] = returncode
+    stdout = result.stdout
+    stderr = result.stderr
     stdout_path.write_text(stdout, encoding="utf-8")
     stderr_path.write_text(stderr, encoding="utf-8")
 
